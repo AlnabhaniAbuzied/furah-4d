@@ -1,4 +1,4 @@
-// Al-Furaih Villa structural 4D viewer, v5. English or Arabic (right to left).
+// Al-Furaih Villa structural 4D viewer, v6. English or Arabic (right to left), dark or light, in the AHB dashboard style.
 // Model: exported from the Revit structural model (model.json). More layers (MEP) can be added later, see LAYERS.
 // Programme: the AHB dashboard (furah.html). The page reads the dashboard live when it can reach it. If it cannot,
 // or the dashboard's data cannot be read, it shows the last good copy (kept on this device) or the snapshot saved
@@ -24,7 +24,7 @@ const PREV_KEY = 'fur4d.prev';          // the dashboard of the week before, for
 const REPO = 'engahmedkhodier-hash/ahb-dashboard'; // where the dashboard's weekly history lives
 const REFRESH_MINUTES = 15;
 const DAY = 86400000;
-const VERSION = 'v5';
+const VERSION = 'v6';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -54,6 +54,20 @@ const AR = () => LANG === 'ar';
 const L = (en, ar) => LANG === 'ar' && ar != null ? ar : en;
 function inEn(f) { const k = LANG; LANG = 'en'; try { return f(); } finally { LANG = k; } } // the A4 sheet stays in English
 const LOC = () => AR() ? 'ar-SA-u-ca-gregory-nu-latn' : 'en-GB';
+
+/* ---------- Dark or light, as on the AHB dashboard: dark unless this device chose light ---------- */
+const THEME_KEY = 'fur4d.theme';
+let THEME = (() => { try { const v = localStorage.getItem(THEME_KEY); if (v === 'light' || v === 'dark') return v; } catch (e) { /* storage blocked */ } return 'dark'; })();
+document.documentElement.setAttribute('data-theme', THEME);
+function renderThemeBtn() {
+  const b = document.getElementById('bTheme'); if (!b) return; const toLight = THEME === 'dark';
+  b.innerHTML = `<span class="l">${toLight ? L('Light mode', 'الوضع الفاتح') : L('Dark mode', 'الوضع الداكن')}</span><span class="s">${toLight ? L('Light', 'فاتح') : L('Dark', 'داكن')}</span>`;
+  b.setAttribute('aria-label', toLight ? L('Switch to light mode', 'التبديل إلى الوضع الفاتح') : L('Switch to dark mode', 'التبديل إلى الوضع الداكن'));
+}
+function setTheme(t) {
+  THEME = t; try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* storage blocked */ }
+  document.documentElement.setAttribute('data-theme', t); renderThemeBtn();
+}
 // Counted nouns. Arabic forms: one, two (nominative), two (after a preposition or as an object), 3 to 10, 11 to 99, 100 and over.
 const NOUNS = {
   day: ['day', 'days', 'يوم واحد', 'يومان', 'يومين', 'أيام', 'يوماً', 'يوم'],
@@ -999,7 +1013,7 @@ function resize() {
 }
 function applyTheme() {
   if (!three) return;
-  const bg = new THREE.Color(); bg.setStyle(css('--bg'), THREE.SRGBColorSpace);
+  const bg = new THREE.Color(); bg.setStyle(css('--stage'), THREE.SRGBColorSpace);
   three.scene.background = bg;
   const dark = bg.getHSL({}).l < 0.4;
   for (const k in colorCache) delete colorCache[k];
@@ -1187,7 +1201,10 @@ function placeCallouts() {
   const bw = calloutCol(W);
   const svg = box.querySelector('svg'); let lines = '';
   if (bw) {
-    const x0 = AR() ? 12 : W - bw - 12, top = 62, bottom = H - 12, xl = AR() ? x0 + bw : x0;
+    const x0 = AR() ? 12 : W - bw - 12, bottom = H - 12, xl = AR() ? x0 + bw : x0;
+    const sr = $('#stamp').getBoundingClientRect(), br = box.getBoundingClientRect();
+    const meets = AR() ? sr.left - br.left < x0 + bw + 8 : sr.right - br.left > x0 - 8;
+    const top = meets ? Math.round(sr.bottom - br.top) + 10 : 12;
     const order = list.map((o, i) => i).sort((a, b) => pts[a].y - pts[b].y);
     const hs = calls.map(c => { c.style.width = bw + 'px'; c.style.display = ''; return c.offsetHeight; });
     let y = top; const ys = [];
@@ -1228,10 +1245,18 @@ function renderKpis() {
   const gap = (k.actCum ?? 0) - (k.planCum ?? 0);
   const fin = parseDash(k.finish), bl = parseDash(k.blFinish);
   const late = fin != null && bl != null ? Math.round((fin - bl) / DAY) : null;
-  $('#kpis').innerHTML = `
-    <div class="kpi${cp != null && cp < pp - 5 ? ' bad' : ''}"><b>${cp != null ? Math.round(cp) + '%' : '—'}</b><span>${L('Structure cast, plan', 'صب الهيكل، المخطط')} ${pp != null ? Math.round(pp) + '%' : '—'}: ${esc(fmtM3(cc.cast))} ${L('of', 'من')} ${esc(fmtM3(cc.tot))}</span></div>
-    <div class="kpi${gap < -5 ? ' bad' : ''}"><b>${esc(pct(k.actCum))}</b><span>${L('Whole project, plan', 'المشروع كاملاً، المخطط')} ${esc(pct(k.planCum))}${k.spi != null ? `${L(', ', '، ')}SPI ${esc((+k.spi).toFixed(2))}` : ''}</span></div>
-    <div class="kpi${late > 0 ? ' bad' : ''}"><b>${esc(fmtD(fin))}</b><span>${L('Forecast finish', 'الانتهاء المتوقع')} ${fin != null ? new Date(fin).getUTCFullYear() : ''}${late > 0 ? L(`, ${late} days after the baseline`, `، بعد الخطة الأساسية بـ${cnt(late, 'day', true)}`) : late != null ? L(', on the baseline', '، حسب الخطة الأساسية') : ''}</span></div>`;
+  const p2 = v => v == null || isNaN(v) ? '—' : `${(+v).toFixed(2)}%`; // the dashboard's own figures, as it shows them
+  const behind = L('Behind', 'متأخر');
+  const cells = [
+    { bad: cp != null && cp < pp - 5, label: L('Structure cast', 'صب الهيكل'), tag: behind, value: cp != null ? Math.round(cp) + '%' : '—',
+      sub: `${L('Plan', 'المخطط')} <span class="mono">${pp != null ? Math.round(pp) + '%' : '—'}</span> · <span class="mono">${esc(fmtM3(cc.cast))}</span> ${L('of', 'من')} <span class="mono">${esc(fmtM3(cc.tot))}</span>` },
+    { bad: gap < -5, label: L('Whole project', 'المشروع كاملاً'), tag: behind, value: p2(k.actCum),
+      sub: `${L('Plan', 'المخطط')} <span class="mono">${esc(p2(k.planCum))}</span>${k.spi != null ? ` · SPI <span class="mono">${esc((+k.spi).toFixed(2))}</span>` : ''}` },
+    { bad: late > 0, label: L('Forecast finish', 'الانتهاء المتوقع'), tag: late > 0 ? L(`+${late} days`, `+${late} يوماً`) : '', value: fmtD(fin),
+      sub: `${fin != null ? `<span class="mono">${new Date(fin).getUTCFullYear()}</span> · ` : ''}${L('baseline', 'الأساسية')} <span class="mono">${esc(fmtD(bl))}</span>` },
+  ];
+  const anyTag = cells.some(c => c.bad);
+  $('#kpis').innerHTML = cells.map(c => `<div class="kpi${c.bad ? ' bad' : ''}"><span class="kl">${c.label}</span>${anyTag ? `<span class="kt${c.bad ? '' : ' none'}">${esc(c.bad ? c.tag : '—')}</span>` : ''}<b>${esc(c.value)}</b><span class="ks">${c.sub}</span></div>`).join('');
 }
 function renderFloorProgress() {
   const { rows } = floorProgress();
@@ -1254,8 +1279,13 @@ function shownCopy() { // which data is on screen when the dashboard is not bein
 function renderSource() {
   const b = $('#srcBadge'), ban = $('#banner'), st = srcState(), dd = fmtD(DATA.dataDate, true);
   b.className = 'badge ' + { live: 'live', fallback: 'warn', snapshot: 'snap' }[st];
-  b.querySelector('span').textContent = st === 'live' ? L(`Live · data date ${dd} · checked ${fmtTime(DATA.checked)}`, `مباشر · تاريخ البيانات ${dd} · آخر تحقق ${fmtTime(DATA.checked)}`)
-    : st === 'fallback' ? L(`Not live just now · data date ${dd}`, `غير مباشر حالياً · تاريخ البيانات ${dd}`) : L(`Saved copy · data date ${dd}`, `نسخة محفوظة · تاريخ البيانات ${dd}`);
+  const tagTxt = st === 'live' ? L('Live', 'مباشر') : st === 'fallback' ? L('Not live', 'غير مباشر') : L('Saved copy', 'نسخة محفوظة');
+  b.innerHTML = `<b class="stag"><i></i>${esc(tagTxt)}</b><span>${L('Data date', 'تاريخ البيانات')} <span class="mono">${esc(dd)}</span>${st === 'live' ? ` · ${L('checked', 'آخر تحقق')} <span class="mono">${esc(fmtTime(DATA.checked))}</span>` : ''}</span>`;
+  // the same three facts in the black bar, as on the AHB dashboard
+  $('#mDate').textContent = dd;
+  const ms = $('#mSrc'); ms.className = { live: 'live', fallback: 'warn', snapshot: '' }[st]; ms.innerHTML = `<i></i>${esc(tagTxt)}`;
+  $('#mChk').textContent = DATA.checked ? fmtTime(DATA.checked) : '—';
+  ban.className = 'banner' + (st === 'fallback' ? ' bad' : '');
   b.title = st === 'live' ? L(`Read from ${DATA.source}. Checked again every ${REFRESH_MINUTES} minutes while the page is open.`, `مقروءة من ${DATA.source}. يُعاد التحقق كل ${REFRESH_MINUTES} دقيقة ما دامت الصفحة مفتوحة.`)
     : st === 'fallback' ? L(`The dashboard could not be read, so this shows ${shownCopy()}.`, `تعذّرت قراءة لوحة المتابعة، لذا تُعرض ${shownCopy()}.`) : L('This copy cannot reach the dashboard, so it shows the dashboard data saved with it.', 'هذه النسخة لا تصل إلى لوحة المتابعة، لذا تعرض بياناتها المحفوظة معها.');
   const hc = healthRows().filter(r => (r[0] === 'warn' || r[0] === 'bad') && !r[3]).length;
@@ -1333,26 +1363,28 @@ function renderWarn() {
 }
 function renderStamp() {
   let t;
+  const D = (x, y) => `<span class="mono">${esc(fmtD(x, y))}</span>`;
+  const head = (ey, b) => `<span class="ey">${ey}</span><b>${b}</b>`;
   const key = (pairs, list) => pairs.filter(([g]) => list.some(o => o.group === g)).map(([g, l]) => `<span><i style="background:var(${GROUP_COLOR[g]})"></i>${esc(l)}</span>`).join('');
-  if (S.hl) t = `${L('Programme check', 'تدقيق البرنامج الزمني')}<small>${esc(S.hl.label)}</small><span class="k">${S.hl.legend.map(([c, l]) => `<span><i style="background:var(${c})"></i>${esc(l)}</span>`).join('')}</span>`;
-  else if (S.mode === 'time') t = `${esc(fmtDW(S.t))}<small>${L(`Dashboard dates: recorded to ${esc(fmtD(DATA.dataDate))}, forecast after`, `تواريخ لوحة المتابعة: مسجّلة حتى ${esc(fmtD(DATA.dataDate))}، ومتوقعة بعده`)}</small>`;
+  if (S.hl) t = `${head(L('Programme check', 'تدقيق البرنامج الزمني'), esc(S.hl.label))}<span class="k">${S.hl.legend.map(([c, l]) => `<span><i style="background:var(${c})"></i>${esc(l)}</span>`).join('')}</span>`;
+  else if (S.mode === 'time') t = `${head(L('4D timeline', 'الخط الزمني 4D'), `<span class="mono">${esc(fmtDW(S.t))}</span>`)}<small>${L(`Dashboard dates: recorded to ${esc(fmtD(DATA.dataDate))}, forecast after`, `تواريخ لوحة المتابعة: مسجّلة حتى ${esc(fmtD(DATA.dataDate))}، ومتوقعة بعده`)}</small>`;
   else if (changeOn()) {
-    t = `${L('Done since', 'المنجز منذ')} ${esc(fmtD(PREV.dataDate, true))}<small>${L(`Dashboard ${esc(fmtD(PREV.dataDate))} to ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `, plus site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `لوحة المتابعة من ${esc(fmtD(PREV.dataDate))} إلى ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `، مع تحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
+    t = `${head(L('Last week', 'الأسبوع الماضي'), `${L('Done since', 'المنجز منذ')} ${D(PREV.dataDate, true)}`)}<small>${L(`Dashboard ${esc(fmtD(PREV.dataDate))} to ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `, plus site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `لوحة المتابعة من ${esc(fmtD(PREV.dataDate))} إلى ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `، مع تحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
       <span class="k">${key([['chcast', L('Cast', 'صُبّ')], ['chprog', L('Moved on', 'تقدّم')]], S.pins || [])}<span><i style="background:var(--before)"></i>${L('Built before', 'منفّذ سابقاً')}</span></span>`;
   }
   else if (delayOn()) {
-    t = `${L('Top delays at', 'أكبر التأخيرات في')} ${esc(fmtD(DATA.dataDate, true))}<small>${L('Days late against the baseline, from the dashboard', 'أيام التأخير مقارنة بالخطة الأساسية، من لوحة المتابعة')}</small>
+    t = `${head(L('Plan vs actual', 'المخطط والفعلي'), `${L('Top delays at', 'أكبر التأخيرات في')} ${D(DATA.dataDate, true)}`)}<small>${L('Days late against the baseline, from the dashboard', 'أيام التأخير مقارنة بالخطة الأساسية، من لوحة المتابعة')}</small>
       <span class="k">${key([['late', L('Late', 'متأخر')], ['behind', L('Behind plan', 'خلف الخطة')]], S.pins || [])}</span>`;
   }
-  else if (S.mode === 'pva') t = `${L('Plan vs actual at', 'المخطط مقابل الفعلي في')} ${esc(fmtD(DATA.dataDate, true))}<small>${L("Baseline plan % against the dashboard's actual %", 'نسبة الخطة الأساسية مقابل النسبة الفعلية في لوحة المتابعة')}</small>`;
+  else if (S.mode === 'pva') t = `${head(L('Plan vs actual', 'المخطط والفعلي'), D(DATA.dataDate, true))}<small>${L("Baseline plan % against the dashboard's actual %", 'نسبة الخطة الأساسية مقابل النسبة الفعلية في لوحة المتابعة')}</small>`;
   else if (weekOn()) {
     const w = curWin();
-    t = `${esc(w.label)}: ${esc(fmtRange(w.from, w.to, true))}<small>${L(`Structural work from the dashboard of ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` and site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `الأعمال الإنشائية من لوحة المتابعة بتاريخ ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` وتحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
+    t = `${head(esc(w.label), `<span class="mono">${esc(fmtRange(w.from, w.to, true))}</span>`)}<small>${L(`Structural work from the dashboard of ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` and site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `الأعمال الإنشائية من لوحة المتابعة بتاريخ ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` وتحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
       <span class="k">${key([['carried', L('Carried over', 'مرحّل')], ['progress', L('In progress', 'قيد التنفيذ')], ['starting', L('Starting', 'يبدأ')]], S.pins || weekItems())}</span>`;
   }
   else {
     const w = curWin();
-    t = `${L('Site status', 'حالة الموقع')} ${esc(fmtD(DATA.asOf, true))}<small>${DATA.siteUsed.length ? L(`Dashboard ${esc(fmtD(DATA.dataDate))} plus site updates`, `لوحة المتابعة ${esc(fmtD(DATA.dataDate))} مع تحديثات الموقع`) : L('From the dashboard', 'من لوحة المتابعة')} · ${L('blue: planned by', 'الأزرق: مخطط حتى')} ${esc(fmtD(w.to))}</small>`;
+    t = `${head(L('Site status', 'حالة الموقع'), D(DATA.asOf, true))}<small>${DATA.siteUsed.length ? L(`Dashboard ${esc(fmtD(DATA.dataDate))} plus site updates`, `لوحة المتابعة ${esc(fmtD(DATA.dataDate))} مع تحديثات الموقع`) : L('From the dashboard', 'من لوحة المتابعة')} · ${L('blue: planned by', 'الأزرق: مخطط حتى')} ${esc(fmtD(w.to))}</small>`;
   }
   if (S.focus) t += `<small>${L('Showing:', 'المعروض:')} ${esc(S.focusLabel)}</small>`;
   else if (floorText() && !S.hl) t += `<small>${esc(floorText())}</small>`;
@@ -1542,7 +1574,14 @@ function liveHowHtml() { // how this link stays up to date, shown under Data hea
        <ol><li>Open the ahb-dashboard repository on GitHub and choose Add file, then Upload files.</li><li>Drag in the <code>furah-4d</code> folder and commit.</li><li>Open <code>${esc(LIVE_HOME)}</code>. It reads the dashboard on every visit, so each weekly update flows through.</li></ol>
        <p>Site updates go in <code>furah-4d/site-updates.csv</code>, one line per activity: date, activity, percent, by, note. Each one stops counting once the dashboard is updated past its date.</p>`;
 }
+function renderModelMeta() {
+  const rv = /-([A-Z]{2,4}-\d{2})\.rvt$/i.exec(M.info?.source || '');
+  if (rv) { $('#mRev').textContent = rv[1].toUpperCase(); $('#mRev').title = M.info.source; $('#mRev').hidden = false; }
+  const ex = /^(\d{4})-(\d{2})-(\d{2})/.exec(M.info?.exported || '');
+  if (ex) { $('#mExp').innerHTML = `${L('Exported', 'صُدّر')} <b class="mono">${esc(fmtD(Date.UTC(+ex[1], +ex[2] - 1, +ex[3]), true))}</b>`; $('#mExp').hidden = false; }
+}
 function renderFoot() {
+  renderModelMeta();
   const i = M.info;
   const exp = parseIso(i.exported) != null ? `${fmtD(parseIso(i.exported), true)} ${String(i.exported).slice(11, 16)}` : i.exported;
   const layers = LAYERS.filter(l => l.on).map(l => L(l.name, l.ar)).join(L(', ', '، '));
@@ -1719,6 +1758,7 @@ function sheetList() { // the list beside the picture: what this view is about
 async function buildSheet() {
   const { AHB_LOGO, AHB_LOGO_AR } = await import('./logos.js');
   const [lg1, lg2] = await Promise.all([loadImg(AHB_LOGO), loadImg(AHB_LOGO_AR)]);
+  try { await Promise.all(['400', '700'].map(w => document.fonts.load(`${w} 24px Inter`))); } catch (e) { /* the sheet falls back to Arial */ }
   const cv = inEn(() => drawSheet(lg1, lg2)); // the sheet keeps AHB's English title block
   if (AR()) paint(); // the screen goes back to Arabic
   return cv;
@@ -1729,7 +1769,7 @@ function drawSheet(lg1, lg2) {
   const r = render3D(Math.round(pic.w), Math.round(pic.h));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d');
-  const F = (mm, wt = 400) => `${wt} ${Math.round(mm * m)}px Arial, "Helvetica Neue", Helvetica, "Liberation Sans", sans-serif`;
+  const F = (mm, wt = 400) => `${wt} ${Math.round(mm * m)}px Inter, Arial, "Helvetica Neue", Helvetica, "Liberation Sans", sans-serif`;
   g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.textBaseline = 'alphabetic';
   // header: ahb logo left, company logo right, title in the middle
   const h1 = 12 * m, w1 = h1 * lg1.width / lg1.height; g.drawImage(lg1, X0, 10 * m, w1, h1);
@@ -1756,7 +1796,7 @@ function drawSheet(lg1, lg2) {
   g.strokeStyle = '#bdbdbd'; g.lineWidth = 0.25 * m; g.strokeRect(pic.x, pic.y, pic.w, pic.h);
   // right column: colours, then the list for this view
   const cx0 = pic.x + pic.w + 4 * m, cw = X1 - cx0; let y = pic.y;
-  const headRow = (text, right) => { g.fillStyle = '#000'; g.fillRect(cx0, y, cw, 6.2 * m); g.fillStyle = '#fff'; g.font = F(2.5, 700); g.textAlign = 'left'; g.fillText(fitText(g, text.toUpperCase(), cw - (right ? 22 * m : 4 * m)), cx0 + 2 * m, y + 4.3 * m); if (right) { g.textAlign = 'right'; g.font = F(2.2, 400); g.fillText(right, cx0 + cw - 2 * m, y + 4.3 * m); } y += 6.2 * m; };
+  const headRow = (text, right) => { g.fillStyle = '#000'; g.fillRect(cx0, y, cw, 6.2 * m); g.font = F(2.2, 400); const rw = right ? g.measureText(right).width + 6 * m : 4 * m; g.fillStyle = '#fff'; g.font = F(2.5, 700); g.textAlign = 'left'; g.fillText(fitText(g, text.toUpperCase(), cw - rw), cx0 + 2 * m, y + 4.3 * m); if (right) { g.textAlign = 'right'; g.font = F(2.2, 400); g.fillText(right, cx0 + cw - 2 * m, y + 4.3 * m); } y += 6.2 * m; };
   const rule = () => { g.fillStyle = '#d6d6d6'; g.fillRect(cx0, y, cw, 0.2 * m); };
   headRow('Colours', S.hl ? '' : 'elements');
   const hlc = S.hl ? computeChecks().find(x => x.id === S.focusCheck) : null;
@@ -1939,7 +1979,7 @@ function focusAct(id) {
 
 /* ---------- Week focus, drafts and small actions ---------- */
 const narrow = () => matchMedia('(max-width:760px)').matches;
-function showStage() { if (narrow()) $('#stage').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
+function showStage() { if (narrow()) $('#work').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); }
 function toggleWeek(on = !S.weekFocus, win) {
   if (win) S.win = win;
   S.weekFocus = on;
@@ -2076,7 +2116,6 @@ function bind() {
     if (t.closest('[data-retry]')) { e.preventDefault(); toast(L('Trying the dashboard again…', 'جارٍ إعادة محاولة قراءة لوحة المتابعة…')); refresh(true); return; }
     if (t.closest('[data-howto]')) { e.preventDefault(); openHow(); return; }
     if (t.closest('[data-tour]')) { e.preventDefault(); openGuide(0); return; }
-    if (t.closest('#bLang')) { setLang(AR() ? 'en' : 'ar'); return; }
     const os = t.closest('[data-open-sec]');
     if (os) { e.preventDefault(); const sec = document.getElementById(os.dataset.openSec); sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     const pf = t.closest('button[data-pfloor]');
@@ -2196,6 +2235,7 @@ function applyLang() {
   }
   for (const el of document.querySelectorAll('[data-lang]')) el.hidden = el.dataset.lang !== LANG;
   const b = $('#bLang'); b.textContent = ar ? 'English' : 'العربية'; b.lang = ar ? 'en' : 'ar'; b.title = ar ? 'Show the 4D in English' : 'اعرض النموذج بالعربية';
+  renderThemeBtn();
   if (ar) loadArFont();
 }
 // Messages read from the site and documents files were written in the old language: read them again.
@@ -2235,8 +2275,8 @@ const GUIDE = [
     body: () => L('Drag to turn it. Scroll or pinch to zoom, and drag with the right button or two fingers to move it. The floor buttons on the model show the building up to one floor.',
       'اسحب لتدويره. استخدم عجلة الفأرة أو إصبعين للتكبير، واسحب بالزر الأيمن أو بإصبعين لتحريكه. أزرار الأدوار على النموذج تعرض المبنى حتى دور معيّن.') },
   { target: () => $('.tabs'), extra: () => $('#lens'), title: () => L('Pick a view', 'اختر طريقة العرض'),
-    body: () => L('Site status shows what is built today. Plan vs actual shows what is late. 4D timeline plays the programme day by day. On the model, Last week and Next week number one week of work.',
-      '«حالة الموقع» تعرض ما نُفّذ حتى اليوم، و«المخطط والفعلي» يعرض المتأخر، و«الخط الزمني 4D» يشغّل البرنامج يوماً بيوم. وعلى النموذج، زرّا «الأسبوع الماضي» و«الأسبوع القادم» يرقّمان أعمال أسبوع واحد.') },
+    body: () => L('Site status shows what is built today. Plan vs actual shows what is late. 4D timeline plays the programme day by day. Last week and Next week, at the top of the model, number one week of work.',
+      '«حالة الموقع» تعرض ما نُفّذ حتى اليوم، و«المخطط والفعلي» يعرض المتأخر، و«الخط الزمني 4D» يشغّل البرنامج يوماً بيوم. وزرّا «الأسبوع الماضي» و«الأسبوع القادم» أعلى النموذج يرقّمان أعمال أسبوع واحد.') },
   { target: () => $('#stage'), title: () => L('Tap any element', 'اضغط على أي عنصر'),
     body: () => L('Tap a column, beam or slab to see its activities, dates and progress, with WIR, MIR and photo links. Reset brings the whole building back.',
       'اضغط على عمود أو كمرة أو بلاطة لترى أنشطتها وتواريخها ونسبة إنجازها، مع روابط طلبات الفحص WIR وMIR والصور. زر «إعادة الضبط» يعيد المبنى كاملاً.') },
@@ -2315,7 +2355,7 @@ async function refresh(asked = false) {
   } else {
     if (next) DATA.checked = next.checked;
     renderSource(); renderHealth();
-    if (asked) toast(next ? L('Dashboard read: no change.', 'قُرئت لوحة المتابعة: لا تغيير.') : L('The dashboard still cannot be read. Showing the last good data.', 'ما زالت قراءة لوحة المتابعة متعذّرة. تُعرض آخر بيانات سليمة.'));
+    if (asked) toast(next ? L('Dashboard read: no change.', 'قُرئت لوحة المتابعة: لا تغيير.') : !(DATA.live || DATA.fail || liveExpected()) ? L('This link shows the copy saved with the 4D. The GitHub link reads the dashboard live.', 'هذا الرابط يعرض النسخة المحفوظة مع النموذج. رابط GitHub يقرأ لوحة المتابعة مباشرة.') : L('The dashboard still cannot be read. Showing the last good data.', 'ما زالت قراءة لوحة المتابعة متعذّرة. تُعرض آخر بيانات سليمة.'));
   }
 }
 
@@ -2352,6 +2392,18 @@ async function main() {
     msg.innerHTML = `<p><b>${L('The 4D view could not open', 'تعذّر فتح النموذج')}</b>${esc(err.message || String(err))}</p>`;
   }
 }
-window.__4d = { S, get three() { return three; }, get DATA() { return DATA; }, get PREV() { return PREV; }, get M() { return M; }, select, refresh, setLang, openGuide };
+let refreshing = false;
+async function refreshNow() {
+  if (refreshing || !DATA || !M || !three) return;
+  refreshing = true; const b = $('#bRefresh'); b.setAttribute('aria-busy', 'true');
+  try { await refresh(true); } catch (e) { console.error(e); } finally { refreshing = false; b.removeAttribute('aria-busy'); }
+}
+$('#top').addEventListener('click', e => {
+  const t = e.target;
+  if (t.closest('#bLang')) { setLang(AR() ? 'en' : 'ar'); return; }
+  if (t.closest('#bTheme')) { setTheme(THEME === 'dark' ? 'light' : 'dark'); return; }
+  if (t.closest('#bRefresh')) refreshNow();
+});
+window.__4d = { S, get three() { return three; }, get DATA() { return DATA; }, get PREV() { return PREV; }, get M() { return M; }, select, refresh, setLang, setTheme, openGuide };
 applyLang();
 main();

@@ -2,7 +2,13 @@
 
 A 4D view of the villa's structure that opens in any browser, on a computer or a phone, with nothing to install. Each element of the Revit structural model is coloured from the AHB project dashboard (`furah.html`): what is built, what is in progress, and what is planned for next week.
 
-The page works in English and Arabic: the **العربية / English** button under the title switches language (right-to-left layout in Arabic; the exported A4 sheet stays in English). First-time visitors get a 3-step **Quick tour**; it can be opened again from the link at the bottom of the side panel.
+It looks like the AHB Projects Dashboard: a black bar with the ahb mark, figures in a monospaced font, and the same pale-yellow main button. The black bar holds the data date, where the data came from, and three buttons:
+
+- **العربية / English** switches language (right-to-left layout in Arabic; the exported A4 sheet stays in English).
+- **Light mode / Dark mode** switches the colours. It starts dark, like the dashboard, and each phone or computer remembers its choice.
+- **Refresh now** reads the dashboard again at once (on computers; on phones, reload the page).
+
+First-time visitors get a 3-step **Quick tour**; it can be opened again from the link at the bottom of the side panel.
 
 ## Put it online (once, about 3 minutes)
 
@@ -18,11 +24,11 @@ If you cannot upload to ahb-dashboard, any GitHub repository with Pages turned o
 
 The same steps are in the 4D itself: press **How to update** under the title.
 
-1. **Update the dashboard** as usual and press **Publish to live link**. The 4D reads it by itself. Open the 4D and check that the green badge shows the new data date.
+1. **Update the dashboard** as usual and press **Publish to live link**. The 4D reads it by itself. Open the 4D and check that the data date at the top is the new one, marked **Live**.
 2. **Add site notes** for work seen on site after the data date (see "Site updates" below).
 3. **Link inspections and photos** (optional): add lines to `documents.csv` (see "Inspections, photos and documents" below).
 4. **Look at Data health** at the bottom of the side panel. It should say "all good".
-5. **Make the weekly report pictures**: press **Next week** on the model, then **Share** and **Download PDF**. For work done: **Last week**. For delays: **Plan vs actual**, **Show only these in 3D**, then **Share**.
+5. **Make the weekly report pictures**: press **Next week** at the top of the model, then **Share** and **Download PDF**. For work done: **Last week**. For delays: **Plan vs actual**, **Show only these in 3D**, then **Share**.
 
 ## What updates by itself
 
