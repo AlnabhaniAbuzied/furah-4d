@@ -1,0 +1,4 @@
+date,activity,type,ref,status,link,note
+# One line per document. Lines starting with # are ignored. Examples:
+# 2026-11-24,SP.GF.06,WIR,25008-WIR-STR-016,A,https://your-sharepoint-link,GF beams steel fixing
+# 2026-11-25,SP.GF.05 SP.GF.06,Photo,,,https://your-sharepoint-link,GF beams before casting

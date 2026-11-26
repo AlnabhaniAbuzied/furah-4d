@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Al-Furaih Villa 4D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a site-office tool: calm, exact, written for the engineer who walks the slab every morning.
+   IDEA: the marked-up structural print on the site office wall, coloured in pencil: green cast, yellow and orange in hand, blue next week.
+   PICTURE: the structure itself, full height, coloured by the live programme; everything else is the legend beside it.
+   COLOUR and TYPE: drawing-paper white or night slate, near-black ink, five status pencils; Archivo for text, Archivo condensed for figures and labels.
+   LAYOUT: control rail on the left (370px), model fills the rest; under 760px the model comes first and the rail follows. */
+:root{color-scheme:light dark;
+  --bg:light-dark(#f4f2ec,#0f1214);--panel:light-dark(#fffefb,#161a1d);--ink:light-dark(#1b1d1f,#e8ebed);
+  --mute:light-dark(#5f666c,#9aa3aa);--line:light-dark(#e2ded4,#2a3035);--chip:light-dark(#efece5,#20262a);
+  --chip-on:light-dark(#1b1d1f,#e8ebed);--chip-on-ink:light-dark(#fffefb,#121517);
+  --built:#2f8f5b;--form:#e3b23c;--rebar:#e8772e;--cast:#c4552b;--next:#2f6fdc;--late:#d64545;
+  --ghost:light-dark(#aeb3b8,#5a636b);--focus:#2f6fdc;--before:light-dark(#c4c9cd,#525b63)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Archivo,"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.app{display:grid;grid-template-columns:minmax(0,370px) minmax(0,1fr);height:100vh;height:100dvh}
+.panel{background:var(--panel);border-inline-end:1px solid var(--line);overflow-y:auto;padding:18px 18px 28px;display:flex;flex-direction:column;gap:16px}
+.stage{position:relative;overflow:hidden;--tlh:0px}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#c:active{cursor:grabbing}
+h1{font-size:26px;line-height:1.05;margin:0;font-stretch:112%;font-weight:800;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:4px 0 0;font-size:14px}
+.src{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:10px;font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;background:var(--chip);font-weight:600;white-space:nowrap}
+.badge i{width:8px;height:8px;border-radius:50%;background:var(--ghost);flex:none}
+.badge.live i{background:var(--built);box-shadow:0 0 0 3px color-mix(in srgb,var(--built) 25%,transparent)}
+.badge.snap i{background:var(--form)}
+.src a{color:var(--ink)}
+.banner{border-radius:10px;padding:10px 12px;background:color-mix(in srgb,var(--form) 20%,var(--panel));border:1px solid color-mix(in srgb,var(--form) 60%,transparent);font-size:13.5px;line-height:1.4}
+.banner b{display:block;font-size:14.5px;margin-bottom:2px}
+.banner a{color:inherit;font-weight:650}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kpi{border-top:2px solid var(--ink);padding-top:6px}
+.kpi b{display:block;font-size:24px;line-height:1.1;font-stretch:75%;font-weight:700;white-space:nowrap}
+.kpi span{display:block;font-size:12.5px;color:var(--mute);line-height:1.3}
+.kpi.bad b{color:var(--late)}
+.warn{all:unset;box-sizing:border-box;display:grid;grid-template-columns:18px minmax(0,1fr);gap:9px;align-items:start;padding:9px 11px;border-radius:10px;background:color-mix(in srgb,var(--late) 10%,var(--panel));border:1px solid color-mix(in srgb,var(--late) 45%,transparent);cursor:pointer;font-size:13.5px;line-height:1.38}
+.warn:hover{background:color-mix(in srgb,var(--late) 16%,var(--panel))}
+.warn:focus-visible{outline:2px solid var(--focus)}
+.warn[hidden]{display:none}
+.warn .ic,.chk .ic{width:18px;height:18px;border-radius:50%;background:var(--late);color:#fff;display:grid;place-items:center;font-weight:800;font-size:12px;margin-top:1px}
+.warn b{display:block}
+.warn u{text-decoration:underline;text-underline-offset:2px;font-weight:600}
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--chip);border-radius:10px;padding:3px;gap:3px}
+.tabs button{border:0;background:transparent;border-radius:8px;padding:9px 4px;font-weight:650;font-size:14px;cursor:pointer;min-height:40px}
+.tabs button[aria-selected=true]{background:var(--panel);box-shadow:0 1px 3px rgb(0 0 0 / .14)}
+.sec h2{font-size:13px;font-weight:700;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sec h2 small{font-weight:500;color:var(--mute);font-size:12.5px}
+.hint{color:var(--mute);font-size:12.5px;line-height:1.4;margin:6px 0 0}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.legend li{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 6px;border-radius:7px;cursor:pointer}
+.legend li:hover{background:var(--chip)}
+.legend li[aria-pressed=true]{background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--ink)}
+.sw{width:16px;height:16px;border-radius:4px;border:1px solid rgb(0 0 0 / .12);flex:none;display:inline-block}
+.sw.ghost{background:repeating-linear-gradient(45deg,transparent 0 3px,var(--ghost) 3px 4px);border-color:var(--ghost)}
+.legend .n{font-stretch:75%;font-weight:600;color:var(--mute);font-size:13px;white-space:nowrap}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.list li button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:3px 9px;width:100%;padding:7px 8px;border-radius:8px;cursor:pointer;align-items:start}
+.list li button:hover,.list li button[aria-pressed=true]{background:var(--chip)}
+.list li button:focus-visible{outline:2px solid var(--focus)}
+.list .grp{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);padding:8px 8px 2px}
+.dot{width:10px;height:10px;border-radius:50%;margin-top:5px}
+.list .t{font-weight:600;font-size:14px;line-height:1.3}
+.list .m{grid-column:2/4;font-size:12.5px;color:var(--mute);line-height:1.35}
+.list .p{font-stretch:75%;font-weight:700;font-size:14px;white-space:nowrap}
+.late{color:var(--late);font-weight:600}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:0 6px;border-radius:99px;background:color-mix(in srgb,var(--built) 18%,transparent);color:light-dark(#1f6a42,#8fd3ad);vertical-align:1px}
+.empty{color:var(--mute);font-size:13.5px;margin:0}
+.seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--chip);border-radius:9px;padding:3px;gap:3px;margin-bottom:8px}
+.seg button{border:0;background:transparent;border-radius:7px;padding:5px 4px;font-size:13px;font-weight:650;cursor:pointer;min-height:44px;line-height:1.2}
+.seg button small{display:block;font-weight:500;font-size:11.5px;color:var(--mute);font-stretch:85%}
+.seg button[aria-pressed=true]{background:var(--panel);box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.sum{font-size:13.5px;margin:0 0 6px;line-height:1.4}
+.acts-row{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px}
+.btn{border:1px solid var(--line);background:var(--chip);border-radius:8px;padding:6px 11px;font-weight:650;font-size:13px;cursor:pointer;min-height:36px}
+.btn:hover{border-color:var(--mute)}
+.pour{font-size:13px;margin:8px 0 0;padding:8px 10px;border-radius:9px;background:var(--chip);line-height:1.45}
+.pour b{font-stretch:85%}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1px solid var(--line);background:var(--chip);border-radius:99px;padding:6px 12px;font-weight:600;font-size:13.5px;cursor:pointer;min-height:36px}
+.chips button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
+.toggles{display:grid;gap:6px;margin-top:10px}
+.tg{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer}
+.tg input{width:18px;height:18px;accent-color:var(--ink);flex:none}
+.chk{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.chk li > button[data-check]{all:unset;box-sizing:border-box;display:grid;grid-template-columns:18px minmax(0,1fr);gap:3px 9px;width:100%;padding:8px;border-radius:8px;cursor:pointer;align-items:start;font-size:13.5px;line-height:1.38}
+.chk li > button[data-check]:hover,.chk li > button[data-check][aria-pressed=true]{background:var(--chip)}
+.chk li > button[data-check]:focus-visible{outline:2px solid var(--focus)}
+.chk .ic.data{background:var(--form);color:#1b1d1f}
+.chk .ic.info{background:var(--ghost)}
+.chk b{font-weight:650}
+.chk .m{grid-column:2;color:var(--mute);font-size:12.5px}
+.site{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.site li button{all:unset;box-sizing:border-box;display:block;width:100%;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--line);font-size:13.5px;line-height:1.4}
+.site li button:hover,.site li button[aria-pressed=true]{background:var(--chip)}
+.site li button:focus-visible{outline:2px solid var(--focus)}
+.site .d{font-weight:700;font-stretch:85%}
+.site .m{color:var(--mute);font-size:12.5px}
+.search input{width:100%;font-size:16px;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--panel)}
+details{border-top:1px solid var(--line);padding-top:12px;font-size:13.5px}
+summary{cursor:pointer;font-weight:650}
+details p,details ol{margin:8px 0 0;line-height:1.45}
+details ol{padding-inline-start:20px}
+details code{font-size:12.5px;background:var(--chip);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
+.map{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px}
+.map th,.map td{text-align:start;padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+.map td.r{text-align:end;font-stretch:75%;white-space:nowrap}
+.foot{font-size:12.5px;color:var(--mute);line-height:1.45;margin:0}
+.foot a{color:inherit}
+/* stage overlays */
+.tools{position:absolute;top:12px;inset-inline-end:12px;display:flex;gap:6px;z-index:3}
+.floors{position:absolute;inset-inline-start:12px;bottom:calc(var(--tlh) + 12px);z-index:3;display:flex;flex-direction:column;gap:4px;padding:5px;border-radius:12px;background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--line);backdrop-filter:blur(6px)}
+.floors button{border:0;background:transparent;border-radius:8px;padding:4px 12px;font-weight:650;font-size:13px;cursor:pointer;min-height:32px;text-align:start}
+.floors button:hover{background:var(--chip)}
+.floors button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink)}
+.tools button{border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 92%,transparent);border-radius:9px;padding:7px 11px;font-weight:650;font-size:13px;cursor:pointer;min-height:38px;backdrop-filter:blur(6px)}
+.stamp{position:absolute;inset-inline-start:14px;top:12px;z-index:3;pointer-events:none;font-stretch:75%;font-weight:700;font-size:15px;line-height:1.2;background:color-mix(in srgb,var(--panel) 88%,transparent);padding:6px 10px;border-radius:9px;border:1px solid var(--line);max-width:calc(100% - 210px)}
+.stamp small{display:block;font-weight:500;color:var(--mute);font-size:12.5px;font-stretch:100%;margin-top:2px}
+.stamp .k{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;font-size:12.5px;font-weight:600;font-stretch:100%}
+.stamp .k span{display:inline-flex;gap:5px;align-items:center}
+.stamp .k i{width:11px;height:11px;border-radius:3px;display:inline-block}
+#tags{position:absolute;inset:0;pointer-events:none;z-index:2}
+#tags span{position:absolute;transform:translate(-100%,-50%);font-size:11.5px;font-weight:700;font-stretch:75%;color:var(--mute);white-space:nowrap;padding-right:6px;border-right:1.5px solid var(--mute)}
+[dir=rtl] #tags span{transform:translate(0,-50%);padding:0 0 0 6px;border-right:0;border-left:1.5px solid var(--mute)}
+.card{position:absolute;inset-inline-end:12px;bottom:12px;width:min(420px,calc(100% - 24px));max-height:calc(100% - 80px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 30px rgb(0 0 0 / .18);padding:14px 14px 12px;z-index:4;display:none}
+.stage.timeline .card{bottom:calc(var(--tlh) + 12px);max-height:calc(100% - var(--tlh) - 80px)}
+.card.on{display:block}
+.card h3{margin:0 0 2px;margin-inline-end:30px;font-size:17px;line-height:1.25}
+.card .k{color:var(--mute);font-size:12.5px;line-height:1.4}
+.card .x{position:absolute;top:8px;inset-inline-end:8px;border:0;background:var(--chip);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1}
+.card h4{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+.card .note{font-size:13px;line-height:1.4;margin:4px 0 0}
+.card .ph{font-size:13px;line-height:1.4;margin:0;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;color:var(--mute)}
+.st{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:13px;margin:8px 0 4px;flex-wrap:wrap}
+.st i{width:10px;height:10px;border-radius:3px}
+.acts{width:100%;border-collapse:collapse;margin-top:2px;font-size:12.5px}
+.acts th{color:var(--mute);font-weight:600;text-align:start;padding:4px 3px;border-bottom:1px solid var(--line)}
+.acts td{padding:5px 3px;border-bottom:1px solid var(--line);vertical-align:top}
+.acts td.r,.acts th.r{text-align:end;white-space:nowrap;font-stretch:75%;font-weight:600}
+.acts .id{display:block;color:var(--mute);font-size:11.5px;font-stretch:75%}
+.bar{height:5px;background:var(--chip);border-radius:3px;margin-top:3px;position:relative;overflow:hidden}
+.bar i{position:absolute;inset-inline-start:0;top:0;bottom:0;border-radius:3px}
+.bar u{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink)}
+.card .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.card .row button{border:1px solid var(--line);background:var(--chip);border-radius:8px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;min-height:36px}
+.tl{position:absolute;left:12px;right:12px;bottom:12px;z-index:3;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:12px;padding:10px 14px 12px;display:none;backdrop-filter:blur(6px)}
+.tl.on{display:block}
+.tl .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tl .play{border:0;background:var(--ink);color:var(--panel);border-radius:50%;width:42px;height:42px;cursor:pointer;font-size:16px;flex:none}
+.tl .d{font-stretch:75%;font-weight:700;font-size:22px;line-height:1;white-space:nowrap}
+.tl .d small{display:block;font-size:12.5px;font-weight:500;color:var(--mute);font-stretch:100%;margin-top:3px}
+.tl .sp{margin-inline-start:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.tl .sp button{border:1px solid var(--line);background:var(--chip);border-radius:8px;padding:5px 9px;font-size:12.5px;font-weight:600;cursor:pointer;min-height:34px}
+.track{position:relative;margin-top:10px;height:34px;direction:ltr}
+.track input{position:absolute;left:0;right:0;top:4px;width:100%;margin:0;accent-color:var(--ink);height:24px}
+.track .mk{position:absolute;top:0;bottom:0;width:0;border-left:2px solid var(--next);pointer-events:none}
+.track .mk b{position:absolute;bottom:-2px;left:3px;font-size:11px;font-weight:700;white-space:nowrap;color:var(--next)}
+.track .mk.today{border-color:var(--late)}.track .mk.today b{color:var(--late);bottom:auto;top:-4px}
+.msg{position:absolute;inset:0;display:grid;place-items:center;z-index:5;background:var(--bg);text-align:center;padding:24px}
+.msg[hidden]{display:none}
+.msg p{max-width:420px;margin:0;color:var(--mute)}
+.msg b{display:block;color:var(--ink);font-size:18px;margin-bottom:6px}
+.toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:99px;font-weight:600;font-size:13.5px;z-index:6;display:none;max-width:calc(100% - 24px);text-align:center}
+.toast.on{display:block}
+#print{display:none}
+/* v3: progress by floor (a meter list: name, bar, figure; tick = plan) */
+.meters{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.meters button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:92px minmax(0,1fr) 34px 58px;gap:0 8px;align-items:center;width:100%;padding:4px 6px;border-radius:8px;cursor:pointer}
+.meters button:hover,.meters button[aria-pressed=true]{background:var(--chip)}
+.meters button:focus-visible{outline:2px solid var(--focus)}
+.meters .nm{font-size:13.5px;font-weight:600;line-height:1.2}
+.meters .mt{position:relative;height:8px;border-radius:4px;background:color-mix(in srgb,var(--built) 20%,var(--panel))}
+.meters .mt i{position:absolute;inset-inline-start:0;top:0;bottom:0;border-radius:4px;background:var(--built)}
+.meters .mt u{position:absolute;top:-4px;bottom:-4px;width:2px;margin-inline-start:-1px;background:var(--ink);border-radius:1px}
+.meters .fig{font-stretch:75%;font-weight:700;font-size:15px;text-align:end;line-height:1.2}
+.meters .pl{font-size:12px;color:var(--mute);white-space:nowrap;font-stretch:85%}
+.meters .fig.late{color:var(--late)}
+.sec h2 .key{display:inline-flex;align-items:center;gap:4px;margin-inline-start:10px;white-space:nowrap}
+.sec h2 .key i{width:12px;height:8px;border-radius:2px;background:var(--built)}
+.sec h2 .key u{width:2px;height:12px;background:var(--ink)}
+/* v3: next-week focus pins and labels */
+#callouts{position:absolute;inset:0;pointer-events:none;z-index:2}
+#callouts[hidden]{display:none}
+#callouts svg{position:absolute;left:0;top:0;overflow:visible}
+#callouts line{stroke-width:1.5;opacity:.9}
+.pin{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:var(--c);color:var(--t,#fff);font:800 13px/1 Archivo,system-ui,sans-serif;font-stretch:85%;display:grid;place-items:center;cursor:pointer;box-shadow:0 1px 5px rgb(0 0 0 / .35);padding:0}
+.call{position:absolute;pointer-events:auto;text-align:start;border:1px solid var(--line);border-inline-start:4px solid var(--c);background:color-mix(in srgb,var(--panel) 95%,transparent);border-radius:8px;padding:5px 8px 6px;font-size:12px;line-height:1.3;cursor:pointer;box-shadow:0 2px 8px rgb(0 0 0 / .12);backdrop-filter:blur(4px);color:var(--ink)}
+.call b{display:block;font-size:12.5px;font-weight:700;margin-bottom:1px}
+.call span{color:var(--mute)}
+.list .num{width:20px;height:20px;border-radius:50%;background:var(--c);color:var(--t,#fff);font-size:11.5px;font-weight:800;display:grid;place-items:center;font-stretch:85%;margin-top:0}
+.tools button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
+.tools button[hidden]{display:none}
+.btn.on{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
+.btn.pri{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.btn.sm{min-height:30px;padding:4px 9px;font-size:12.5px}
+/* v3: ways to fix a programme clash */
+.chk details.fix{margin:0 0 2px;margin-inline:35px 8px;font-size:12.5px;line-height:1.4;border:0;padding:0}
+.chk details.fix summary{font-size:12.5px;font-weight:650;color:var(--ink);margin:0 0 3px}
+.chk details.fix p{margin:0 0 5px}
+.chk .fixrow{margin:0 0 8px;margin-inline:35px 8px}
+/* v3: site updates form */
+.probs{border-radius:9px;padding:8px 10px;background:color-mix(in srgb,var(--late) 10%,var(--panel));border:1px solid color-mix(in srgb,var(--late) 40%,transparent);font-size:13px;margin-bottom:8px;line-height:1.4}
+.probs ul{margin:4px 0 0;padding-inline-start:18px}
+.probs p{margin:4px 0 0}
+details.add{border-top:0;padding-top:8px}
+#siteForm{display:grid;gap:8px;margin-top:8px}
+.fld{display:grid;gap:3px;font-size:12.5px;font-weight:600;color:var(--mute)}
+.fld input,.fld select{font-size:15px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-weight:500;width:100%;min-height:40px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+pre.csv{font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;background:var(--chip);padding:8px 10px;border-radius:8px;overflow-x:auto;white-space:pre;margin:6px 0}
+.tag.draft{background:color-mix(in srgb,var(--form) 32%,transparent);color:light-dark(#6b4f00,#f2d27a)}
+.lbar{display:block;height:6px;border-radius:3px;background:var(--chip);margin:14px auto 0;width:220px;max-width:100%;overflow:hidden}
+.lbar i{display:block;height:100%;width:0;background:var(--ink);border-radius:3px;transition:width .2s}
+/* v5: last week / next week pair on the model, and the "done since last week" box */
+.lens{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(6px)}
+.lens[hidden]{display:none}
+.tools .lens button{border:0;border-radius:0;backdrop-filter:none;background:transparent}
+.tools .lens button + button{border-inline-start:1px solid var(--line)}
+.tools .lens button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink)}
+.past{background:var(--chip);border-radius:10px;padding:10px 12px;margin:0 0 16px}
+.past h2{margin-bottom:4px}
+.past .sum{margin:0 0 8px}
+.past .acts-row{margin:0}
+.past .list{margin-top:8px}
+/* v5: documents on the element card */
+.docs{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:6px}
+.docs li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;font-size:13px;line-height:1.35;padding:6px 0;border-bottom:1px solid var(--line)}
+.docs .dt{font-size:11px;font-weight:800;letter-spacing:.03em;padding:2px 6px;border-radius:5px;background:var(--chip);white-space:nowrap;margin-top:1px}
+.docs .dm b{font-weight:650}
+.docs .dm .k{display:block}
+.docs .ds{font-size:11.5px;font-weight:700;padding:0 6px;border-radius:99px;background:var(--chip);white-space:nowrap}
+.docs .ds.cA,.docs .ds.cB{background:color-mix(in srgb,var(--built) 18%,transparent);color:light-dark(#1f6a42,#8fd3ad)}
+.docs .ds.cC,.docs .ds.cD{background:color-mix(in srgb,var(--late) 16%,transparent);color:light-dark(#a02c2c,#f1a3a3)}
+.docs a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:center}
+.health ul.plain{margin:2px 0 0;padding-inline-start:16px;color:var(--mute);font-size:12.5px}
+#health h3.hh{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);margin:14px 0 0}
+/* v5: programme checks folded away, like the other reference boxes */
+details.secd > summary{font-size:13px;font-weight:700}
+details.secd #checksSec{margin-top:8px}
+/* v4: data health, delays, export and the weekly routine */
+.badge.warn i{background:var(--late);box-shadow:0 0 0 3px color-mix(in srgb,var(--late) 22%,transparent)}
+.src .hlink{color:var(--late);font-weight:650}
+.src .hlink[hidden]{display:none}
+.hs{font-weight:600;font-size:12.5px;margin-inline-start:6px;padding:1px 8px;border-radius:99px;background:var(--chip);color:var(--mute)}
+.hs.hs-ok{background:color-mix(in srgb,var(--built) 18%,transparent);color:light-dark(#1f6a42,#8fd3ad)}
+.hs.hs-warn{background:color-mix(in srgb,var(--form) 32%,transparent);color:light-dark(#6b4f00,#f2d27a)}
+.hs.hs-bad{background:color-mix(in srgb,var(--late) 18%,transparent);color:light-dark(#a02c2c,#f1a3a3)}
+.health{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px}
+.health li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:9px;align-items:start;font-size:13px;line-height:1.38}
+.health .ic{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:11.5px;margin-top:1px;background:var(--ghost);color:#fff}
+.health li.ok .ic{background:var(--built)}
+.health li.warn .ic{background:var(--form);color:#1b1d1f}
+.health li.bad .ic{background:var(--late)}
+.health b{font-weight:650;display:block}
+.health .m{display:block;color:var(--mute);font-size:12.5px}
+.health .m a{color:var(--ink)}
+.health details.more{border:0;padding:0;margin-top:2px;font-size:12.5px}
+.health details.more summary{font-weight:600;color:var(--ink)}
+.health details.more ul{margin:4px 0 0;padding-inline-start:16px}
+.list .p.late{color:var(--late)}
+.list .pv{display:block;margin-top:2px}
+.list .m .bar{display:block}
+.list .m .bar i,.list .m .bar u{display:block}
+dialog{border:0;border-radius:14px;padding:0;background:var(--panel);color:var(--ink);box-shadow:0 18px 60px rgb(0 0 0 / .35);width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
+dialog::backdrop{background:rgb(10 12 14 / .5)}
+.dlg{padding:16px 18px 16px;display:grid;gap:10px}
+.dlg .dh{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dlg h2{margin:0;font-size:19px;font-stretch:105%}
+.dlg .x{border:0;background:var(--chip);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:19px;line-height:1;flex:none}
+.dlg .acts-row{margin:0}
+.dlg .btn[disabled]{opacity:.45;cursor:default}
+.exprev{background:var(--chip);border-radius:10px;padding:8px;display:grid;place-items:center;min-height:200px}
+.exprev img{display:block;width:100%;height:auto;border-radius:3px;box-shadow:0 1px 6px rgb(0 0 0 / .2);background:#fff}
+.exprev img:not([src]){display:none}
+.how{font-size:14px;line-height:1.45}
+.how h3{margin:6px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+.how ol,.how ul{margin:0;padding-inline-start:20px;display:grid;gap:6px}
+.how p{margin:0}
+.how code{font-size:12.5px;background:var(--chip);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
+/* v5: language switch, Arabic text, the first-time guide */
+.hrow{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.lang{border:1px solid var(--line);background:var(--chip);border-radius:99px;padding:3px 12px;font-weight:650;font-size:13.5px;cursor:pointer;min-height:34px;flex:none;margin-top:1px;color:var(--ink)}
+.lang:hover,.glang:hover{border-color:var(--mute)}
+[lang=ar] .lang,.lang[lang=ar],.glang[lang=ar]{font-family:"IBM Plex Sans Arabic",system-ui,sans-serif}
+pre.csv,code{direction:ltr;unicode-bidi:isolate}
+pre.csv{text-align:left}
+[dir=rtl] h1,[dir=rtl] .card h4,[dir=rtl] .list .grp,[dir=rtl] #health h3.hh,[dir=rtl] .how h3,[dir=rtl] .docs .dt{letter-spacing:0}
+[dir=rtl] .list .t,[dir=rtl] .card h3{line-height:1.4}
+[dir=rtl] .pour,[dir=rtl] .sum,[dir=rtl] .hint{line-height:1.6}
+.guide{position:fixed;inset:0;z-index:20;pointer-events:none}
+[data-lang][hidden]{display:none!important}
+.guide[hidden]{display:none}
+.gring{position:fixed;border-radius:12px;box-shadow:0 0 0 3px var(--next),0 0 0 8px color-mix(in srgb,var(--next) 22%,transparent);pointer-events:none}
+.gring[hidden]{display:none}
+.gring.g2{box-shadow:0 0 0 3px var(--next)}
+@media (prefers-reduced-motion:no-preference){.gring{transition:left .25s,top .25s,width .25s,height .25s;animation:gpulse 1.8s ease-in-out infinite}}
+@keyframes gpulse{50%{box-shadow:0 0 0 3px var(--next),0 0 0 13px color-mix(in srgb,var(--next) 8%,transparent)}}
+.gcard{position:fixed;left:8px;top:8px;pointer-events:auto;width:min(360px,calc(100vw - 16px));background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 44px rgb(0 0 0 / .3);padding:12px 14px 14px;display:grid;gap:8px}
+.gcard h2{margin:0;font-size:18px;line-height:1.3;font-stretch:105%}
+.gcard p{margin:0;font-size:14.5px;line-height:1.55}
+.gtop{display:flex;align-items:center;gap:8px}
+.gstep{font-size:12.5px;font-weight:700;color:var(--mute);margin-inline-end:auto}
+.glang{border:1px solid var(--line);background:var(--chip);border-radius:99px;padding:2px 10px;font-weight:650;font-size:13px;cursor:pointer;min-height:30px;color:var(--ink)}
+.gcard .x{border:0;background:var(--chip);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;color:var(--ink)}
+.gcard .acts-row{justify-content:flex-end;margin:2px 0 0}
+@media (max-width:760px){
+  body{overflow:auto}
+  .app{display:flex;flex-direction:column;height:auto}
+  .stage{order:-1;height:66vh;height:66svh;min-height:380px}
+  .panel{border-inline-end:0;border-top:1px solid var(--line);overflow:visible}
+  .card{inset-inline:8px;width:auto;bottom:8px;max-height:72%}
+  .stage.timeline .card{bottom:calc(var(--tlh) + 8px)}
+  .tl{inset-inline:8px;bottom:8px;padding:8px 10px 10px}
+  .tl .d{font-size:18px}
+  .tl .sp{margin-inline-start:0}
+  .stamp{font-size:13px;max-width:calc(100% - 190px)}
+  .stamp small{font-size:11.5px}
+  .tools{inset-inline-end:8px;top:8px}
+  .floors{inset-inline:8px;bottom:calc(var(--tlh) + 8px);padding:3px;gap:2px;flex-direction:row;overflow-x:auto;scrollbar-width:none}
+  .floors::-webkit-scrollbar{display:none}
+  .floors button{min-height:34px;padding:3px 10px;font-size:13px;white-space:nowrap;flex:none}
+  .stage.carded .floors{display:none}
+  .tl .sp button[data-jump=start],.tl .sp button[data-jump=end]{display:none}
+  .tl .top{gap:8px 10px}
+  .tools button{padding:6px 8px;font-size:12.5px;min-height:36px}
+  .tools{gap:4px;inset-inline-start:8px;justify-content:flex-end}
+  .stamp{top:52px;max-width:calc(100% - 16px)}
+}
+@media (max-width:350px){ /* small phones (320 px): keep the four tools on one line */
+  .tools{gap:3px}
+  .tools button{padding:5px 6px;font-size:11.5px;white-space:nowrap}
+}
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  dialog{display:none!important}
+  html,body{height:auto;overflow:visible;background:#fff;color:#000}
+  .app{display:none}
+  #print{display:block;font:10.5pt/1.4 Archivo,system-ui,sans-serif;color:#000}
+  #print h1{font-size:18pt;margin:0}
+  #print .meta{margin:2px 0 8px;color:#444}
+  #print .pic{display:grid;grid-template-columns:1.3fr 1fr;gap:10px;align-items:start}
+  #print img{width:100%;border:1px solid #ccc;border-radius:4px}
+  #print table{width:100%;border-collapse:collapse;font-size:9pt;margin-top:6px}
+  #print th,#print td{border-bottom:1px solid #ccc;padding:3px 4px;text-align:left;vertical-align:top}
+  #print th{font-weight:700}
+  #print .g{font-weight:700;padding-top:7px}
+  #print ul{margin:4px 0 0;padding-left:16px}
+  #print .sw{border:1px solid #888}
+  #print img.sheet{width:100%;border:0;border-radius:0;display:block}
+  #print.how h1{font-size:16pt}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div class="app">
+  <aside class="panel" id="panel" aria-label="4D controls" data-ar-aria-label="أدوات النموذج">
+    <header>
+      <div class="hrow"><h1 data-ar="فيلا الفريح">Al-Furaih Villa</h1><button type="button" class="lang" id="bLang" lang="ar" title="اعرض النموذج بالعربية">العربية</button></div>
+      <p class="sub" data-ar="النموذج رباعي الأبعاد (4D) للهيكل الإنشائي، ملوّن من لوحة متابعة مشاريع AHB">Structure 4D, coloured from the AHB project dashboard</p>
+      <div class="src"><span class="badge" id="srcBadge"><i></i><span data-ar="جارٍ تحميل البيانات…">Loading data…</span></span><a id="dashLink" href="https://engahmedkhodier-hash.github.io/ahb-dashboard/furah.html" target="_blank" rel="noopener" data-ar="فتح لوحة المتابعة">Open dashboard</a><a href="#" data-howto data-ar="طريقة التحديث">How to update</a><a href="#healthBox" id="healthLink" class="hlink" data-open="healthBox" hidden></a></div>
+    </header>
+    <div class="banner" id="banner" hidden></div>
+    <section class="kpis" id="kpis" aria-label="Progress" data-ar-aria-label="الإنجاز"></section>
+    <section class="sec" id="floorProg" aria-label="Concrete cast by floor" data-ar-aria-label="الخرسانة المصبوبة حسب الدور"></section>
+    <button class="warn" id="warn" type="button" hidden></button>
+    <div class="tabs" role="tablist" aria-label="View" data-ar-aria-label="العرض">
+      <button role="tab" id="tab-status" aria-selected="true" data-mode="status" data-ar="حالة الموقع">Site status</button>
+      <button role="tab" id="tab-pva" aria-selected="false" data-mode="pva" data-ar="المخطط والفعلي">Plan vs actual</button>
+      <button role="tab" id="tab-time" aria-selected="false" data-mode="time" data-ar="الخط الزمني 4D">4D timeline</button>
+    </div>
+    <section class="sec"><h2><span id="legTitle">Colours</span><small id="legNote"></small></h2><ul class="legend" id="legend"></ul><p class="hint" id="legHint"></p></section>
+    <section class="sec" id="modeBody"></section>
+    <section class="sec">
+      <h2><span data-ar="خيارات العرض">View options</span><small id="floorNote"></small></h2>
+      <div class="toggles" style="margin-top:0">
+        <label class="tg"><input type="checkbox" id="tOnly"> <span data-ar="إظهار الدور المختار فقط">Show only the chosen floor</span></label>
+        <label class="tg"><input type="checkbox" id="tPlan"> <span data-ar="النظر من الأعلى (مسقط أفقي)">Look straight down (plan view)</span></label>
+      </div>
+    </section>
+    <section class="sec" id="siteSec">
+      <h2><span data-ar="تحديثات الموقع">Site updates</span><small id="siteWho"></small></h2>
+      <div id="siteList"></div>
+      <details id="siteAdd" class="add"><summary data-ar="إضافة تحديث من الموقع">Add a site update</summary>
+        <form id="siteForm" autocomplete="off">
+          <label class="fld"><span data-ar="النشاط">Activity</span><select id="sfAct" required></select></label>
+          <div class="two"><label class="fld"><span data-ar="نسبة الإنجاز %">% done</span><input id="sfPct" type="number" min="0" max="100" step="1" value="100" inputmode="decimal" required></label><label class="fld"><span data-ar="تاريخ المعاينة">Seen on site</span><input id="sfDate" type="date" required></label></div>
+          <label class="fld"><span data-ar="الاسم">Your name</span><input id="sfBy" type="text" autocomplete="name" dir="auto"></label>
+          <label class="fld"><span data-ar="ملاحظة">Note</span><input id="sfNote" type="text" dir="auto" placeholder="e.g. GF beam steel fixed, WIR requested" data-ar-placeholder="مثلاً: تم تركيب حديد كمرات الأرضي، وطُلب WIR"></label>
+          <div class="acts-row"><button class="btn pri" type="submit" data-ar="اعرضه في النموذج">Show it in the 4D</button></div>
+        </form>
+        <div id="siteDraftOut"></div>
+      </details>
+    </section>
+    <details id="checksBox" class="secd"><summary><span data-ar="تدقيق البرنامج الزمني">Programme checks</span> <span id="checksSum" class="hs"></span></summary><div id="checksSec"></div></details>
+    <section class="sec search">
+      <h2><span data-ar="البحث عن نشاط">Find an activity</span><small data-ar="الرمز أو الاسم">ID or name</small></h2>
+      <input id="q" type="search" dir="auto" placeholder="e.g. GF.06 or hordi" data-ar-placeholder="مثلاً GF.06 أو هوردي" autocomplete="off" aria-label="Find an activity" data-ar-aria-label="البحث عن نشاط">
+      <ul class="list" id="qres" style="margin-top:6px"></ul>
+    </section>
+    <details id="healthBox"><summary><span data-ar="سلامة البيانات">Data health</span> <span id="healthSum" class="hs"></span></summary><div id="health"></div></details>
+    <details id="mapBox"><summary data-ar="كيف يرتبط النموذج بلوحة المتابعة">How the model is linked to the dashboard</summary><div id="mapping"></div></details>
+    <p class="foot" id="foot"></p>
+  </aside>
+  <main class="stage" id="stage">
+    <canvas id="c" aria-label="3D structural model" data-ar-aria-label="النموذج الإنشائي ثلاثي الأبعاد"></canvas>
+    <div id="tags" aria-hidden="true"></div>
+    <div id="callouts" hidden></div>
+    <div class="stamp" id="stamp"></div>
+    <div class="floors" id="floors" role="group" aria-label="Floors" data-ar-aria-label="الأدوار"></div>
+    <div class="tools"><span class="lens" id="lens" role="group" aria-label="Focus" data-ar-aria-label="التركيز"><button id="bDone" type="button" aria-pressed="false" title="What was built since the previous weekly update" data-ar-title="ما نُفّذ منذ التحديث الأسبوعي السابق" data-ar="الأسبوع الماضي">Last week</button><button id="bWeek" type="button" aria-pressed="false" title="Only next week's work, numbered" data-ar-title="أعمال الأسبوع القادم فقط، مرقّمة" data-ar="الأسبوع القادم">Next week</button></span><button id="bExport" type="button" title="PDF or picture for the weekly report, or a link to this view" data-ar-title="ملف PDF أو صورة للتقرير الأسبوعي، أو رابط لهذا العرض" data-ar="مشاركة">Share</button><button id="bFit" type="button" title="Show the whole building again" data-ar-title="إظهار المبنى كاملاً من جديد" data-ar="إعادة الضبط">Reset</button></div>
+    <div class="toast" id="toast" role="status"></div>
+    <div class="card" id="card" role="dialog" aria-label="Element details" data-ar-aria-label="تفاصيل العنصر"></div>
+    <div class="tl" id="tl">
+      <div class="top"><button class="play" id="play" type="button" aria-label="Play">▶</button><div class="d" id="tlDate"></div>
+        <div class="sp"><button type="button" data-jump="start" data-ar="البداية">Start</button><button type="button" data-jump="data" data-ar="تاريخ البيانات">Data date</button><button type="button" data-jump="today" data-ar="اليوم">Today</button><button type="button" data-jump="next" data-ar="+أسبوع">+1 week</button><button type="button" data-jump="end" data-ar="النهاية">Finish</button></div></div>
+      <div class="track" id="track"><input type="range" id="tlRange" min="0" max="100" value="0" step="1" aria-label="Date" data-ar-aria-label="التاريخ"></div>
+    </div>
+    <div class="msg" id="msg"><p><b id="msgLab">Loading the structure…</b><span data-ar="قراءة نموذج Revit وأحدث بيانات لوحة المتابعة.">Reading the Revit model and the latest dashboard data.</span><span class="lbar"><i id="msgBar"></i></span></p></div>
+  </main>
+</div>
+<div class="guide" id="guide" hidden>
+  <div class="gring" id="gRing"></div><div class="gring g2" id="gRing2" hidden></div>
+  <div class="gcard" id="gCard" role="dialog" aria-modal="false" aria-labelledby="gT" aria-describedby="gBody">
+    <div class="gtop"><span class="gstep" id="gStep"></span><button type="button" class="glang" id="gLang"></button><button type="button" class="x" id="gClose">×</button></div>
+    <h2 id="gT"></h2>
+    <p id="gBody"></p>
+    <div class="acts-row"><button type="button" class="btn" id="gBack"></button><button type="button" class="btn pri" id="gNext"></button></div>
+  </div>
+</div>
+<dialog id="exportDlg" aria-label="Share this view" data-ar-aria-label="مشاركة هذا العرض">
+  <div class="dlg">
+    <div class="dh"><h2 id="exT" data-ar="مشاركة هذا العرض">Share this view</h2><button type="button" class="x" data-close-dlg aria-label="Close" data-ar-aria-label="إغلاق">×</button></div>
+    <div class="exprev"><img id="exImg" alt="Preview of the A4 sheet" data-ar-alt="معاينة ورقة A4"></div>
+    <p class="hint" id="exNote"></p>
+    <div class="acts-row"><button type="button" class="btn pri" data-ex="pdf" data-ar="تنزيل PDF (A4)">Download PDF (A4)</button><button type="button" class="btn" data-ex="png" data-ar="تنزيل صورة">Download picture</button><button type="button" class="btn" data-link data-ar="نسخ الرابط">Copy link</button><button type="button" class="btn" data-ex="print" id="exPrint" data-ar="طباعة">Print</button></div>
+  </div>
+</dialog>
+<dialog id="howDlg" aria-label="Keeping the 4D up to date" data-ar-aria-label="إبقاء النموذج 4D محدّثاً">
+  <div class="dlg how" data-lang="en">
+    <div class="dh"><h2 id="howT">Keeping the 4D up to date</h2><button type="button" class="x" data-close-dlg aria-label="Close">×</button></div>
+    <p class="hint" style="margin:0">New to the 4D? <a href="#" data-tour>Take the 3-step tour</a>.</p>
+    <h3>Every week, about 10 minutes</h3>
+    <ol>
+      <li><b>Update the dashboard</b> as usual and press <i>Publish to live link</i>. The 4D reads it by itself: open the 4D link and check that the green badge shows the new data date. It checks again every 15 minutes; reloading the page checks at once.</li>
+      <li><b>Add site notes</b> for work seen on site after the data date. In <i>Site updates</i>, press <i>Add a site update</i>, fill it in and press <i>Show it in the 4D</i>, then <i>Copy lines</i>. On GitHub, open <code>furah-4d/site-updates.csv</code>, press the pencil, paste at the end and press <i>Commit changes</i>. A line stops counting by itself once the dashboard catches up.</li>
+      <li><b>Link inspections and photos</b> (optional). Add a line to <code>furah-4d/documents.csv</code> for each WIR, MIR or photo folder: date, activity, type, ref, status (A, B, C or D), link, note. They show on the element card under <i>Inspections, photos and documents</i>.</li>
+      <li><b>Look at Data health</b> at the bottom of the side panel. It should say "all good". If it lists activities that are not found, the dashboard's activity IDs have changed: send the list to whoever looks after the 4D.</li>
+      <li><b>Make the weekly report pictures.</b> Press <i>Next week</i> on the model, then <i>Share</i> and <i>Download PDF</i>. For work done: <i>Last week</i>. For delays: <i>Plan vs actual</i>, <i>Show only these in 3D</i>, then <i>Share</i>.</li>
+    </ol>
+    <h3>When the Revit model changes</h3>
+    <p>The 4D model is a copy exported from the structural Revit model, so it does not follow the Revit file by itself. When a new structural revision is issued, upload the .rvt to this project and ask Claude to refresh the 4D model. Only <code>model.json</code> changes; upload it to the <code>furah-4d</code> folder on GitHub the same way. Elements are tied to activities by their BOQ code, so keep the BOQ parameter filled in.</p>
+    <h3>If something looks wrong</h3>
+    <ul>
+      <li><b>A "Showing data from …" banner</b> means the dashboard could not be read just now. The 4D shows the last good copy and tries again every 15 minutes.</li>
+      <li><b>A site line is ignored:</b> the Site updates box names the line and the reason, such as an unknown activity or a date after today.</li>
+    </ul>
+    <div class="acts-row"><button type="button" class="btn" data-print-how>Print this card</button><button type="button" class="btn" data-close-dlg>Close</button></div>
+  </div>
+  <div class="dlg how" data-lang="ar" lang="ar" hidden>
+    <div class="dh"><h2>إبقاء النموذج 4D محدّثاً</h2><button type="button" class="x" data-close-dlg aria-label="إغلاق">×</button></div>
+    <p class="hint" style="margin:0">جديد على النموذج؟ <a href="#" data-tour>خذ الجولة السريعة (3 خطوات)</a>.</p>
+    <h3>كل أسبوع، حوالي 10 دقائق</h3>
+    <ol>
+      <li><b>حدّث لوحة المتابعة</b> كالمعتاد واضغط <i>Publish to live link</i>. يقرؤها النموذج تلقائياً: افتح رابط النموذج وتأكد أن الشارة الخضراء تعرض تاريخ البيانات الجديد. يعيد التحقق كل 15 دقيقة، وإعادة تحميل الصفحة تتحقق فوراً.</li>
+      <li><b>أضف ملاحظات الموقع</b> للأعمال المنفّذة بعد تاريخ البيانات. في «تحديثات الموقع» اضغط «إضافة تحديث من الموقع»، واملأ الحقول واضغط «اعرضه في النموذج»، ثم «نسخ الأسطر». على GitHub افتح <code>furah-4d/site-updates.csv</code> واضغط القلم والصق في النهاية ثم <i>Commit changes</i>. يتوقف احتساب السطر تلقائياً عندما تلحق به لوحة المتابعة.</li>
+      <li><b>اربط طلبات الفحص والصور</b> (اختياري). أضف سطراً في <code>furah-4d/documents.csv</code> لكل طلب WIR أو MIR أو مجلد صور: التاريخ، النشاط، النوع، الرقم، الحالة (A أو B أو C أو D)، الرابط، ملاحظة. تظهر في بطاقة العنصر تحت «طلبات الفحص والصور والمستندات».</li>
+      <li><b>راجع «سلامة البيانات»</b> أسفل اللوحة الجانبية. يجب أن تقول «كل شيء سليم». إذا ذكرت أنشطة غير موجودة فقد تغيّرت رموز الأنشطة في لوحة المتابعة: أرسل القائمة إلى المسؤول عن النموذج.</li>
+      <li><b>جهّز صور التقرير الأسبوعي.</b> اضغط «الأسبوع القادم» على النموذج ثم «مشاركة» ثم «تنزيل PDF». للأعمال المنجزة: «الأسبوع الماضي». للتأخيرات: «المخطط والفعلي» ثم «اعرض هذه فقط في النموذج» ثم «مشاركة». الورقة تبقى بالإنجليزية بترويسة AHB.</li>
+    </ol>
+    <h3>عند تغيّر نموذج Revit</h3>
+    <p>النموذج 4D نسخة مُصدَّرة من نموذج Revit الإنشائي، لذا لا يتبع ملف Revit تلقائياً. عند صدور مراجعة إنشائية جديدة، ارفع ملف <bdi dir="ltr">.rvt</bdi> إلى هذا المشروع واطلب من Claude تحديث النموذج. يتغيّر <code>model.json</code> فقط؛ ارفعه إلى مجلد <code>furah-4d</code> على GitHub بالطريقة نفسها. ترتبط العناصر بالأنشطة عبر رمز BOQ، لذا أبقِ حقل BOQ مملوءاً.</p>
+    <h3>إذا بدا شيء غير صحيح</h3>
+    <ul>
+      <li><b>شريط «تُعرض بيانات …»</b> يعني أن قراءة لوحة المتابعة تعذّرت الآن. يعرض النموذج آخر نسخة سليمة ويعيد المحاولة كل 15 دقيقة.</li>
+      <li><b>سطر موقع لم يُحتسب:</b> يذكر مربع «تحديثات الموقع» السطر والسبب، مثل نشاط غير معروف أو تاريخ بعد اليوم.</li>
+    </ul>
+    <div class="acts-row"><button type="button" class="btn" data-print-how>طباعة هذه البطاقة</button><button type="button" class="btn" data-close-dlg>إغلاق</button></div>
+  </div>
+</dialog>
+<div id="print" aria-hidden="true"></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
