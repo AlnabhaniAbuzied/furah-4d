@@ -1,0 +1,6 @@
+date,sleeve,status,by,note
+# MEP sleeve register for the 4D. Lines starting with # are ignored; the last line for a sleeve wins.
+# sleeve: one tag from the 4D (GF-07), a whole pour (GF/BEAM) or a floor (GF). status: provided, pending or not needed.
+# Examples:
+# 2026-12-02,GF/BEAM,provided,Site engineer,all 12 fixed and checked before the WIR
+# 2026-12-02,GF-07,not needed,Site engineer,drain moved; confirmed by MEP

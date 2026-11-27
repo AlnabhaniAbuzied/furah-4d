@@ -1,4 +1,6 @@
-// Al-Furaih Villa structural 4D viewer, v6. English or Arabic (right to left), dark or light, in the AHB dashboard style.
+// Al-Furaih Villa structural 4D viewer, v7. English or Arabic (right to left), dark or light, in the AHB dashboard style.
+// v7 adds the progress summary with an S-curve, what changed this week, a 3-week look-ahead coloured by week, and
+// sleeve tracking (sleeves.json from the STR model, sleeves.csv for what the site has fixed).
 // Model: exported from the Revit structural model (model.json). More layers (MEP) can be added later, see LAYERS.
 // Programme: the AHB dashboard (furah.html). The page reads the dashboard live when it can reach it. If it cannot,
 // or the dashboard's data cannot be read, it shows the last good copy (kept on this device) or the snapshot saved
@@ -24,7 +26,7 @@ const PREV_KEY = 'fur4d.prev';          // the dashboard of the week before, for
 const REPO = 'engahmedkhodier-hash/ahb-dashboard'; // where the dashboard's weekly history lives
 const REFRESH_MINUTES = 15;
 const DAY = 86400000;
-const VERSION = 'v6';
+const VERSION = 'v7';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -83,6 +85,7 @@ const NOUNS = {
   clash: ['sequence clash', 'sequence clashes', 'تعارض واحد في التسلسل', 'تعارضان في التسلسل', 'تعارضين في التسلسل', 'تعارضات في التسلسل', 'تعارضاً في التسلسل', 'تعارض في التسلسل'],
   thing: ['thing', 'things', 'أمر واحد', 'أمران', 'أمرين', 'أمور', 'أمراً', 'أمر'],
   draft: ['draft line', 'draft lines', 'سطر مسودة واحد', 'سطرا مسودة', 'سطري مسودة', 'أسطر مسودة', 'سطر مسودة', 'سطر مسودة'],
+  sleeve: ['sleeve', 'sleeves', 'جلبة واحدة', 'جلبتان', 'جلبتين', 'جلب', 'جلبة', 'جلبة'],
 };
 const PR_AR = new Intl.PluralRules('ar');
 function cnt(n, k, after) { // after: the Arabic dual comes after a preposition or as an object ("قبل يومين")
@@ -286,7 +289,7 @@ const cleanName = s => String(s || '').replace(/\s+/g, ' ').trim().replace(/\.$/
 const S = {
   mode: 'status', floor: 'ALL', only: false, ghost: true, wp: false, win: 'next', useSite: true,
   focus: null, focusLabel: '', focusAct: null, focusItem: null, focusSite: null, focusCheck: null, hl: null,
-  sel: -1, legendFilter: null, t: null, playing: false, weekFocus: false, delayFocus: false, changeFocus: false, pins: null, pinMap: null,
+  sel: -1, legendFilter: null, t: null, playing: false, weekFocus: false, delayFocus: false, changeFocus: false, sleeveFocus: false, selSleeve: -1, pins: null, pinMap: null,
 };
 let DATA = null;      // dashboard data, see prepData
 let SITE = [];        // site updates from the file
@@ -296,6 +299,7 @@ let DOCS = { docs: [], problems: [], file: null, text: '' }; // documents.csv: W
 let CHECKS = [];      // programme checks
 let M = null;         // model
 let three = null;
+let SLV = { list: [], info: null, marks: [], problems: [], file: null, text: '', status: [], shown: [] }; // MEP sleeves: sleeves.json from the model, sleeves.csv from site
 
 /* ---------- Data loading ---------- */
 function extractBundle(html) {
@@ -363,7 +367,18 @@ const liveExpected = () => /\.(github\.io|pages\.dev)$/i.test(location.hostname)
 /* Last week: the dashboard as it was one weekly update earlier, to show what was done since. Taken from this device's
    own copy, else the dashboard's history on GitHub (each weekly publish is a commit), else the copy saved with the 4D. */
 let PREV = null;
-const prevOf = (D, source) => ({ dataDate: bundleDate(D), acts: new Map(D.activities.filter(a => a && a.id).map(a => [a.id, Math.max(0, Math.min(100, +a.act || 0))])), source });
+function prevOf(D, source) {
+  const acts = new Map(), fin = new Map();
+  for (const a of D.activities) {
+    if (!a || !a.id) continue;
+    acts.set(a.id, Math.max(0, Math.min(100, +a.act || 0)));
+    const s = parseIso(a.start), f = parseIso(a.finish);
+    fin.set(a.id, s != null && f != null ? Math.max(s, f) : f ?? s);
+  }
+  const sc = D.scurve || {}, di = D.dataDateIndex, meta = D.meta || {}, at = (arr, i) => arr && i != null && arr[i] != null ? +arr[i] : null;
+  return { dataDate: bundleDate(D), acts, fin, source, actCum: at(sc.cumAct, di) ?? D.packages?.Overall?.act ?? null, planCum: at(sc.cumPlan, di) ?? D.packages?.Overall?.plan ?? null,
+    finish: parseDash(meta.forecastFinish) ?? parseIso(meta.forecastFinishISO) };
+}
 async function prevFromGitHub(cur) {
   const r = await fetchWithTimeout(`https://api.github.com/repos/${REPO}/commits?path=furah.html&per_page=30`, 8000, 'default');
   if (!r.ok) return null;
@@ -532,6 +547,63 @@ async function loadDocsFile() {
   catch (e) { return { docs: [], problems: [L(`The file could not be read: ${e.message}.`, `تعذّرت قراءة الملف: ${e.message}.`)], file: 'documents.csv', text }; }
 }
 const docsFor = ids => DOCS.docs.filter(d => d.ids.some(id => ids.includes(id))).sort((a, b) => (b.t ?? 0) - (a.t ?? 0));
+/* MEP sleeves (builder work). sleeves.json lists the round sleeves read from the structural Revit model; sleeves.csv is
+   the site register: date, sleeve, status, by, note. A line can name one sleeve (GF-07), a pour (GF/BEAM), a floor (GF)
+   or all of them, and the last line for a sleeve wins. Without a line, a sleeve in a pour that is already cast counts as
+   cast in, and the others are still to provide before their pour. */
+const SLEEVE_WORDS = [
+  ['provided', /^(provided|provide|fixed|installed|placed|in place|done|ok|yes|ready|تم|تمت|مركبة|مركّبة|مركب|مركّب)$/],
+  ['pending', /^(pending|missing|not yet|not provided|no|open|to do|todo|بانتظار|معلقة|لم تركب|لم تُركّب)$/],
+  ['notneeded', /^(not needed|not required|n\/a|na|none|cancelled|canceled|omitted|omit|deleted|غير مطلوبة|غير مطلوب|ملغاة|ملغى)$/],
+];
+function sleeveWord(s) { const v = String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); for (const [k, re] of SLEEVE_WORDS) if (re.test(v)) return k; return null; }
+function sleeveTargets(s) { // "GF-07", "GF/BEAM", "GF" or "all" -> the sleeves it names
+  const k = String(s || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!k) return null;
+  const all = SLV.list.map((x, i) => i);
+  if (k === 'ALL' || k === '*') return all;
+  const m = /^(SB|B1|GF|1ST|2ND|RF)[-_.]?(\d{1,3})$/.exec(k);
+  if (m) { const id = `${m[1]}-${two(+m[2])}`; const i = SLV.list.findIndex(x => x.id === id); return i < 0 ? null : [i]; }
+  const pour = Object.keys(WORK).find(w => w.toUpperCase() === k);
+  const xs = pour ? all.filter(i => SLV.list[i].pour === pour) : PKG[k] ? all.filter(i => SLV.list[i].pour.split('/')[0] === k) : [];
+  return xs.length ? xs : null;
+}
+function sleevesFromCsv(text) {
+  const rows = parseCsv(text).filter(r => !String(r[0] ?? '').trim().startsWith('#'));
+  if (!rows.length) return { marks: [], problems: [] };
+  const H = rows[0].map(h => h.trim().toLowerCase());
+  const col = (...names) => H.findIndex(h => names.some(n => h === n || h.startsWith(n)));
+  const ci = { date: col('date', 'day'), sl: col('sleeve', 'tag', 'pour', 'where', 'id'), st: col('status', 'state'), by: col('by', 'who', 'checked'), note: col('note', 'comment', 'remark') };
+  if (ci.sl < 0 || ci.st < 0) throw new Error(L('its first line must name the columns: date, sleeve, status, by, note', 'يجب أن يحمل سطره الأول أسماء الأعمدة: date, sleeve, status, by, note'));
+  const problems = [], marks = [];
+  for (const r of rows.slice(1)) {
+    const get = k => ci[k] >= 0 ? String(r[ci[k]] ?? '').trim() : '';
+    const st = sleeveWord(get('st')), t = get('date') ? parseAnyDate(get('date')) : null;
+    if (!get('sl')) { problems.push(L(`Line ${r.line}: the sleeve is empty.`, `السطر ${r.line}: خانة الجلبة فارغة.`)); continue; }
+    if (!st) { problems.push(L(`Line ${r.line}: "${get('st')}" is not a status. Write provided, pending or not needed.`, `السطر ${r.line}: "${get('st')}" ليست حالة. اكتب provided أو pending أو not needed.`)); continue; }
+    const bad = [], idx = [];
+    for (const part of get('sl').split(/[\s;+&]+/).filter(Boolean)) { const xs = sleeveTargets(part); if (xs) idx.push(...xs); else bad.push(part); }
+    if (bad.length) problems.push(L(`Line ${r.line}: ${bad.join(', ')} is not a sleeve, pour or floor in the 4D.`, `السطر ${r.line}: ${bad.join('، ')} ليست جلبة أو صبة أو دوراً في النموذج.`));
+    if (get('date') && t == null) problems.push(L(`Line ${r.line}: "${get('date')}" is not a date, so the line counts in file order.`, `السطر ${r.line}: "${get('date')}" ليس تاريخاً، لذا يُحتسب السطر حسب ترتيبه في الملف.`));
+    if (idx.length) marks.push({ t, idx: uniq(idx), status: st, by: get('by'), note: get('note'), line: r.line });
+  }
+  return { marks, problems };
+}
+async function loadSleeves() {
+  let j = null;
+  try { const r = await fetchWithTimeout('./sleeves.json', 15000); if (r.ok) j = await r.json(); } catch (e) { /* no sleeves file */ }
+  return { list: Array.isArray(j?.sleeves) ? j.sleeves : [], info: j ? { source: j.source, exported: j.exported, rect: +j.rectNotIncluded || 0 } : null };
+}
+async function loadSleeveReg() {
+  let r;
+  try { r = await fetchWithTimeout('./sleeves.csv?t=' + Date.now(), 6000); } catch (e) { return { file: null, text: '' }; }
+  return r.ok ? { file: 'sleeves.csv', text: await r.text() } : { file: null, text: '' };
+}
+function parseSleeveReg() { // after the sleeves are known: a line names them
+  if (!SLV.file) { SLV.marks = []; SLV.problems = []; return; }
+  try { Object.assign(SLV, sleevesFromCsv(SLV.text)); }
+  catch (e) { SLV.marks = []; SLV.problems = [L(`The file could not be read: ${e.message}.`, `تعذّرت قراءة الملف: ${e.message}.`)]; }
+}
 function prepData(D, live, source) {
   const acts = new Map();
   for (const a of D.activities || []) {
@@ -549,6 +621,8 @@ function prepData(D, live, source) {
   const dataDate = parseDash(meta.dataDate) ?? parseDash(wk) ?? localToday();
   const sc = D.scurve || {}; const di = D.dataDateIndex;
   const overall = (D.packages || {}).Overall || {};
+  const num = v => v == null || v === '' || isNaN(+v) ? null : +v;
+  const curve = { t: (D.weeks || []).map(parseDash), plan: (sc.cumPlan || []).map(num), act: (sc.cumAct || []).map(num), di };
   const kpi = {
     planCum: sc.cumPlan && di != null ? sc.cumPlan[di] : overall.plan, actCum: sc.cumAct && di != null ? sc.cumAct[di] : overall.act,
     spi: overall.spi, finish: meta.forecastFinish, blFinish: meta.blFinish,
@@ -558,7 +632,8 @@ function prepData(D, live, source) {
   const end = Math.max(parseIso(meta.forecastFinishISO) ?? 0, ...all.map(a => a.finish).filter(x => x != null));
   const hash = meta.dataDate + ':' + (D.activities || []).map(a => [a.id, a.plan, a.act, a.start, a.finish].join('|')).join(';').length + ':' +
     (D.activities || []).reduce((s, a) => s + (+a.act || 0) * 7 + (+a.plan || 0) * 3 + (parseIso(a.start) || 0) / 1e9, 0).toFixed(3);
-  return { acts, meta, dataDate, kpi, start, end, live, source, hash, checked: Date.now(), project: meta.project || 'Al-Furaih Villa', origin: D._source || null };
+  const fcFinish = parseDash(meta.forecastFinish) ?? parseIso(meta.forecastFinishISO), blFinish = parseDash(meta.blFinish) ?? parseIso(meta.blFinishISO);
+  return { acts, meta, dataDate, kpi, start, end, live, source, hash, checked: Date.now(), project: meta.project || 'Al-Furaih Villa', origin: D._source || null, curve, fcFinish, blFinish };
 }
 async function loadData() {
   const live = await loadLive();
@@ -638,9 +713,9 @@ function windows() {
   const wk = k => ({ from: c0 + (k0 + k) * 7 * DAY, to: c0 + (k0 + k) * 7 * DAY + 6 * DAY });
   const tw = wk(0), nw = wk(1), w3 = wk(2);
   return {
-    this: { ...tw, label: L('This week', 'هذا الأسبوع'), name: L('this week', 'هذا الأسبوع') },
-    next: { ...nw, label: L('Next week', 'الأسبوع القادم'), name: L('next week', 'الأسبوع القادم') },
-    three: { from: tw.from, to: w3.to, label: L('3 weeks', '3 أسابيع'), name: L('the next 3 weeks', 'الأسابيع الثلاثة القادمة') },
+    this: { ...tw, label: L('This week', 'هذا الأسبوع'), name: L('this week', 'هذا الأسبوع'), title: L('This week', 'هذا الأسبوع') },
+    next: { ...nw, label: L('Next week', 'الأسبوع القادم'), name: L('next week', 'الأسبوع القادم'), title: L('Next week', 'الأسبوع القادم') },
+    three: { from: tw.from, to: w3.to, label: L('3 weeks', '3 أسابيع'), name: L('the next 3 weeks', 'الأسابيع الثلاثة القادمة'), title: L('3-week look-ahead', 'نظرة على 3 أسابيع'), weeks: [tw, nw, w3] },
   };
 }
 const curWin = () => windows()[S.win];
@@ -728,8 +803,27 @@ function floorProgress() {
   return { rows, all };
 }
 function concreteCast() { const { all } = floorProgress(); return all; }
+// Earned schedule: the day on which the baseline S-curve reached the % done now. The days between that day and the
+// data date are how far the work is behind (or ahead of) the plan, in time.
+function earnedSchedule(v = DATA.kpi.actCum) {
+  const C = DATA.curve; if (!C || v == null || isNaN(v)) return null;
+  const pts = [];
+  C.t.forEach((t, i) => { if (t == null) return; const p = C.plan[i]; if (p != null) pts.push([t, p]); else if (!pts.length) pts.push([t, 0]); });
+  if (pts.length < 2) return null;
+  if (v <= pts[0][1]) return pts[0][0];
+  for (let i = 1; i < pts.length; i++) {
+    const [t0, p0] = pts[i - 1], [t1, p1] = pts[i];
+    if (v <= p1 && p1 > p0) return Math.round(t0 + (v - p0) / (p1 - p0) * (t1 - t0));
+  }
+  return pts[pts.length - 1][0];
+}
+function scheduleDays() { // negative: behind the plan by that many days
+  const es = earnedSchedule(); if (es == null) return null;
+  return { es, d: Math.round((es - DATA.dataDate) / DAY) };
+}
 // Next-week focus: each work item in the look-ahead, with the group it falls in and its activities.
 function weekItems() {
+  if (S.win === 'three') return threeWeekItems();
   const w = curWin(); const la = lookAhead(w); const out = new Map();
   const rank = { carried: 0, progress: 1, starting: 2 };
   for (const x of la) for (const it of itemsOfAct(x.a.id)) {
@@ -741,6 +835,77 @@ function weekItems() {
   list.forEach((o, i) => { o.n = i + 1; });
   return list;
 }
+
+/* 3-week look-ahead. Each work item takes the colour of the week its concrete is cast in, or, when it is not cast within
+   the three weeks, of the week its work starts. Work that the programme had finished before this week is overdue. */
+const WEEK_GROUPS = ['od', 'w1', 'w2', 'w3'];
+const weekIdx = (t, W) => Math.max(0, Math.min(2, Math.floor((Math.max(t, W.from) - W.from) / (7 * DAY))));
+function threeWeekItems() {
+  const W = windows().three; const by = new Map();
+  for (const x of lookAhead(W)) for (const it of itemsOfAct(x.a.id)) {
+    if (!it.els.length) continue;
+    if (!by.has(it.key)) by.set(it.key, { w: it, xs: [], kind: 'three' });
+    by.get(it.key).xs.push(x);
+  }
+  const out = [...by.values()].map(o => {
+    o.xs.sort((p, q) => p.a.start - q.a.start || STAGES[p.a.stage].order - STAGES[q.a.stage].order);
+    const cast = o.xs.find(x => x.a.stage === 'cast'); const key = cast || o.xs[0];
+    o.cast = cast ? cast.a : null;
+    o.group = key.group === 'carried' ? 'od' : WEEK_GROUPS[1 + weekIdx(key.a.start, W)];
+    o.t = key.group === 'carried' ? key.a.finish : Math.max(key.a.start, W.from);
+    o.late = o.xs.some(x => x.group === 'carried');
+    return o;
+  });
+  out.sort((a, b) => WEEK_GROUPS.indexOf(a.group) - WEEK_GROUPS.indexOf(b.group) || a.t - b.t || PKG[a.w.pkg].i - PKG[b.w.pkg].i);
+  out.forEach((o, i) => { o.n = i + 1; });
+  return out;
+}
+const weekHead = (g, W, short) => g === 'od' ? (short ? L('Overdue', 'متأخر') : L(`Overdue: due before ${fmtD(W.from)}, not reported done`, `متأخر: كان مستحقاً قبل ${fmtD(W.from)} ولم يُبلَّغ عن إنجازه`))
+  : `${L('Week', 'الأسبوع')} ${g[1]} · ${fmtRange(W.weeks[+g[1] - 1].from, W.weeks[+g[1] - 1].to)}`;
+
+/* Sleeve status today: the register line, else cast in (its pour is cast) or still to provide before the pour. */
+const SV_GROUP = { pending: 'svpend', provided: 'svprov', cast: 'svcast', missed: 'svmiss' };
+function sleeveStatus() {
+  const last = new Array(SLV.list.length).fill(null);
+  for (const m of [...SLV.marks].sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity) || a.line - b.line)) for (const i of m.idx) last[i] = m;
+  SLV.status = SLV.list.map((s, i) => {
+    const w = WORK[s.pour]; const cast = !!w && castFrac(w, a => a.act) >= 0.999;
+    const ca = w ? linked(w).find(a => a.stage === 'cast') || null : null;
+    const m = last[i]; let st = m ? m.status : 'pending';
+    if (cast && st === 'pending') st = m ? 'missed' : 'cast'; // the pour went ahead while the register still says pending
+    return { s: st, mark: m, cast, act: ca, due: ca ? ca.start : null };
+  });
+}
+const isoTxt = s => AR() ? `⁦${s}⁩` : s; // keeps "Ø150 ×6" in one piece inside Arabic
+function sleeveSizes(idx) {
+  const c = new Map(); for (const i of idx) c.set(SLV.list[i].dia, (c.get(SLV.list[i].dia) || 0) + 1);
+  return [...c].sort((a, b) => b[1] - a[1] || b[0] - a[0]).map(([d, n]) => isoTxt(`Ø${d} ×${n}`)).join(L(', ', '، '));
+}
+// Pins for the sleeve view: one per pour that still has sleeves to provide, the soonest pour first.
+function sleevePins() {
+  const by = new Map();
+  SLV.list.forEach((s, i) => {
+    const st = SLV.status[i]; if (!st || (st.s !== 'pending' && st.s !== 'missed')) return;
+    const w = WORK[s.pour]; if (!w || !w.els.length) return;
+    if (!by.has(w.key)) by.set(w.key, { kind: 'sleeve', w, group: 'svpend', idx: [], due: st.due, act: st.act });
+    const o = by.get(w.key); o.idx.push(i); if (st.s === 'missed') o.group = 'svmiss';
+  });
+  const out = [...by.values()].sort((a, b) => (a.group === b.group ? 0 : a.group === 'svmiss' ? -1 : 1) || (a.due ?? Infinity) - (b.due ?? Infinity) || PKG[a.w.pkg].i - PKG[b.w.pkg].i);
+  out.forEach((o, i) => {
+    o.n = i + 1;
+    const ps = o.idx.map(k => SLV.list[k].p3).filter(Boolean);
+    if (ps.length) o.anchor = new THREE.Vector3(sum(ps, q => q.x) / ps.length, Math.max(...ps.map(q => q.y)) + 0.15, sum(ps, q => q.z) / ps.length);
+  });
+  return out;
+}
+const sleeveRowText = o => o.group === 'svmiss' ? L(`${plural(o.idx.length, 'sleeve')} to check: the pour is cast while the register says pending`, `${cnt(o.idx.length, 'sleeve')} للتحقق: صُبّت الخرسانة والسجل يقول بانتظار التركيب`)
+  : `${AR() ? cnt(o.idx.length, 'sleeve') : plural(o.idx.length, 'sleeve')}: ${sleeveSizes(o.idx)}`;
+function sleevePinText(o) {
+  if (o.group === 'svmiss') return sleeveRowText(o);
+  const due = o.due != null ? L(` before the pour on ${fmtD(o.due)}`, ` قبل الصب في ${fmtD(o.due)}`) : '';
+  return `${AR() ? `${cnt(o.idx.length, 'sleeve')} للتركيب${due}` : `${plural(o.idx.length, 'sleeve')} to provide${due}`} · ${sleeveSizes(o.idx)}`;
+}
+const pinAnchor = o => o.anchor || anchorOf(o.w);
 
 /* ---------- Programme checks ---------- */
 // Two ways out of a "planned before what it stands on" clash, with the dates they imply.
@@ -810,16 +975,24 @@ function computeChecks() {
 }
 
 /* ---------- Colour schemes ---------- */
-const weekOn = () => S.weekFocus && S.mode === 'status';
+const sleeveOn = () => S.sleeveFocus && S.mode === 'status' && SLV.list.length > 0;
+const weekOn = () => S.weekFocus && S.mode === 'status' && !sleeveOn();
 const delayOn = () => S.delayFocus && S.mode === 'pva';
-const changeOn = () => S.changeFocus && S.mode === 'status' && !!PREV && !PREV.none;
-const pinsOn = () => weekOn() || delayOn() || changeOn();
+const changeOn = () => S.changeFocus && S.mode === 'status' && !!PREV && !PREV.none && !sleeveOn();
+const pinsOn = () => weekOn() || delayOn() || changeOn() || sleeveOn();
 const prevDate = () => PREV && !PREV.none ? fmtD(PREV.dataDate) : L('last week', 'الأسبوع الماضي');
 const T_ELSE = () => L('Everything else', 'باقي العناصر');
 const T_NOPROG = () => L('Not in the programme', 'غير موجود في البرنامج الزمني');
 const T_LATE = () => L(`Late: the baseline had it finished by ${fmtD(DATA.dataDate)}`, `متأخر: كان يجب أن ينتهي بحلول ${fmtD(DATA.dataDate)} حسب الخطة الأساسية`);
 const T_BEHIND = () => L('Behind the baseline plan', 'خلف الخطة الأساسية');
 function legendDefs() {
+  if (sleeveOn()) return [
+    { k: 'svpend', label: L('To provide before the pour', 'تُركَّب قبل الصب'), c: '--rebar' },
+    { k: 'svprov', label: L('Provided: marked on site', 'مركّبة: مؤكدة من الموقع'), c: '--built' },
+    { k: 'svcast', label: L('In concrete already cast', 'في خرسانة مصبوبة'), c: '--before' },
+    { k: 'svmiss', label: L('Check: pour cast, register says pending', 'للتحقق: صُبّت والسجل يقول بانتظار التركيب'), c: '--late' },
+    { k: 'dim', label: L('The structure', 'الهيكل'), c: 'ghost' },
+  ];
   if (changeOn()) return [
     { k: 'chcast', label: L(`Concrete cast since ${prevDate()}`, `صُبّت الخرسانة منذ ${prevDate()}`), c: '--built' },
     { k: 'chprog', label: L(`Moved on since ${prevDate()}, not cast yet`, `تقدّم منذ ${prevDate()} ولم يُصب بعد`), c: '--rebar' },
@@ -831,6 +1004,11 @@ function legendDefs() {
     { k: 'behind', label: T_BEHIND(), c: '--rebar' },
     { k: 'dim', label: T_ELSE(), c: 'ghost' },
   ];
+  if (weekOn() && S.win === 'three') { const W = windows().three; return [
+    { k: 'wkod', label: L(`Overdue: due before ${fmtD(W.from)}`, `متأخر: كان مستحقاً قبل ${fmtD(W.from)}`), c: '--late' },
+    ...W.weeks.map((wk, i) => ({ k: 'wkw' + (i + 1), label: `${L('Week', 'الأسبوع')} ${i + 1} · ${fmtRange(wk.from, wk.to)}`, c: '--wk' + (i + 1) })),
+    { k: 'dim', label: T_ELSE(), c: 'ghost' },
+  ]; }
   if (weekOn()) { const w = curWin(); return [
     { k: 'wkcarried', label: L(`Carried over: due before ${fmtD(w.from)}`, `مرحّل: كان مستحقاً قبل ${fmtD(w.from)}`), c: '--late' },
     { k: 'wkprogress', label: L('In progress', 'قيد التنفيذ'), c: '--rebar' },
@@ -857,6 +1035,7 @@ function legendDefs() {
 }
 function classOf(w) { // which legend key a work item falls in, for the current mode
   if (S.hl) return S.hl.map.has(w.key) ? 'hl' + S.hl.map.get(w.key) : 'dim';
+  if (sleeveOn()) return 'dim';
   if (weekOn()) { const o = S.pinMap?.get(w.key); return o ? 'wk' + o.group : 'dim'; }
   if (delayOn()) { const o = S.pinMap?.get(w.key); return o ? o.group : 'dim'; }
   if (changeOn()) { const o = S.pinMap?.get(w.key); return o ? o.group : itemState(w, a => a.act).s === 'built' ? 'chbefore' : 'dim'; }
@@ -909,7 +1088,7 @@ async function loadModel(onp = () => {}) {
     e.m3 = NOT_CONCRETE.test(e.t || '') ? 0 : (+e.v || 0);
     const w = WORK[e.w]; if (w) { w.els.push(n); w.m3 += e.m3; }
   });
-  return { info: mj.info, H, pos, gidx, els, layers: [layer.k], box: { minX: minX - cx, maxX: maxX - cx, minY, maxY, minZ: minZ - cz, maxZ: maxZ - cz } };
+  return { info: mj.info, H, pos, gidx, els, layers: [layer.k], cx, cz, box: { minX: minX - cx, maxX: maxX - cx, minY, maxY, minZ: minZ - cz, maxZ: maxZ - cz } };
 }
 
 /* ---------- Three.js scene ---------- */
@@ -1046,6 +1225,14 @@ function moveCamera(pos, target, animate = true) {
   };
   camAnim = requestAnimationFrame(step);
 }
+function flyToBox(points) { // points: THREE.Vector3 list
+  const a = [1e9, 1e9, 1e9], b = [-1e9, -1e9, -1e9];
+  for (const q of points) { const c = [q.x, q.y, q.z]; for (let k = 0; k < 3; k++) { a[k] = Math.min(a[k], c[k]); b[k] = Math.max(b[k], c[k]); } }
+  const c = new THREE.Vector3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  const size = Math.max(b[0] - a[0], b[1] - a[1], b[2] - a[2], 4);
+  const dir = three.camera.position.clone().sub(three.controls.target).normalize();
+  moveCamera(c.clone().add(dir.multiplyScalar(size * 1.7 + 4)), c);
+}
 function flyToElements(list) {
   if (!list.length) return;
   const a = [1e9, 1e9, 1e9], b = [-1e9, -1e9, -1e9];
@@ -1073,7 +1260,8 @@ function floorVisible(pkgKey) {
 function paint() {
   if (!three || !DATA) return;
   if (S.mode === 'status') S.nextSet = new Set(lookAhead(curWin()).flatMap(x => itemsOfAct(x.a.id)).map(w => w.key));
-  S.pins = weekOn() ? weekItems() : delayOn() ? delayItems() : changeOn() ? changeItems() : null;
+  sleeveStatus();
+  S.pins = sleeveOn() ? sleevePins() : weekOn() ? weekItems() : delayOn() ? delayItems() : changeOn() ? changeItems() : null;
   S.pinMap = S.pins ? new Map(S.pins.map(o => [o.w.key, o])) : null;
   const solid = [], ghost = [];
   const counts = {};
@@ -1113,9 +1301,55 @@ function paint() {
     three.eGeo.setDrawRange(0, q); three.eIdx.needsUpdate = true;
   }
   three.need = true;
+  paintSleeves(counts);
   S.counts = counts;
   renderLegend();
   paintSelection();
+}
+// Sleeves: one instanced cylinder each, shown only in the sleeve view, coloured by status.
+function placeSleeves() { // Revit (x, y, z) in metres -> the 3D view (x, z, -y), centred like the model
+  const up = new THREE.Vector3(0, 1, 0);
+  for (const s of SLV.list) {
+    const [x, y, z] = s.c, a = s.ax || [0, 0, 1];
+    s.p3 = new THREE.Vector3(x - M.cx, z, -y - M.cz);
+    s.q3 = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(a[0], a[2], -a[1]).normalize());
+    const r = Math.max(0.11, s.dia / 1000 * 1.25); // drawn at 2.5 times the diameter, so it shows on the whole building
+    s.s3 = new THREE.Vector3(r, Math.max(0.2, +s.len || 0) + 0.16, r);
+  }
+}
+function buildSleeveMesh() {
+  if (!SLV.list.length) return;
+  const mesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 18, 1, false), new THREE.MeshLambertMaterial({ color: 0xffffff }), SLV.list.length);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.setColorAt(0, new THREE.Color(1, 1, 1)); // makes the colour buffer
+  mesh.visible = false; mesh.frustumCulled = false; mesh.renderOrder = 4;
+  three.scene.add(mesh); three.sleeves = mesh;
+}
+const _m4 = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0), _sc = new THREE.Vector3();
+function paintSleeves(counts) {
+  const mesh = three && three.sleeves; if (!mesh) return;
+  const on = sleeveOn(); mesh.visible = on; SLV.shown = [];
+  if (!on) return;
+  SLV.list.forEach((s, i) => {
+    const g = SV_GROUP[SLV.status[i]?.s];
+    if (g) counts[g] = (counts[g] || 0) + 1;
+    const show = !!g && floorVisible(s.pour.split('/')[0]) && (!S.legendFilter || S.legendFilter === g) && (!S.focus || S.focus.has(s.pour));
+    SLV.shown[i] = show;
+    if (!show) { mesh.setMatrixAt(i, _zero); return; }
+    const sel = i === S.selSleeve;
+    _m4.compose(s.p3, s.q3, _sc.copy(s.s3).multiplyScalar(sel ? 1.5 : 1));
+    mesh.setMatrixAt(i, _m4); mesh.setColorAt(i, sel ? three.selMesh.material.color : colorFor(g));
+  });
+  mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true; three.need = true;
+}
+function pickSleeve(x, y, w, h) { // the sleeve nearest the tap on screen, within a finger's width
+  const v = new THREE.Vector3(); let best = -1, bd = 18;
+  SLV.list.forEach((s, i) => {
+    if (!SLV.shown[i]) return;
+    v.copy(s.p3).project(three.camera); if (v.z > 1) return;
+    const d = Math.hypot((v.x + 1) / 2 * w - x, (1 - v.y) / 2 * h - y); if (d < bd) { bd = d; best = i; }
+  });
+  return best;
 }
 function paintSelection() {
   const n = S.sel;
@@ -1162,11 +1396,20 @@ function anchorOf(w) { // the top of the element nearest the middle of the work 
   for (const n of w.els) { const e = M.els[n]; const d = [0, 1, 2].reduce((s, k) => s + ((e.min[k] + e.max[k]) / 2 - c[k]) ** 2, 0); if (d < bd) { bd = d; best = e; } }
   return (w._anchor = new THREE.Vector3((best.min[0] + best.max[0]) / 2, best.max[1], (best.min[2] + best.max[2]) / 2));
 }
-const GROUP_COLOR = { carried: '--late', progress: '--rebar', starting: '--next', late: '--late', behind: '--rebar', chcast: '--built', chprog: '--rebar' };
-const GROUP_INK = { carried: '#fff', progress: '#1b1d1f', starting: '#fff', late: '#fff', behind: '#1b1d1f', chcast: '#fff', chprog: '#1b1d1f' }; // number on the pin: white or near-black by the fill
+const GROUP_COLOR = { carried: '--late', progress: '--rebar', starting: '--next', late: '--late', behind: '--rebar', chcast: '--built', chprog: '--rebar',
+  od: '--late', w1: '--wk1', w2: '--wk2', w3: '--wk3', svpend: '--rebar', svprov: '--built', svcast: '--before', svmiss: '--late' };
+const GROUP_INK = { carried: '#fff', progress: '#1b1d1f', starting: '#fff', late: '#fff', behind: '#1b1d1f', chcast: '#fff', chprog: '#1b1d1f',
+  od: '#fff', w1: '#fff', w2: '#0b0b0b', w3: '#0b0b0b', svpend: '#1b1d1f', svprov: '#fff', svcast: '#1b1d1f', svmiss: '#fff' }; // number on the pin: white or near-black by the fill
 const pinStyle = g => `--c:var(${GROUP_COLOR[g]});--t:${GROUP_INK[g]}`;
 const T_MORE = n => L(`+${n} more`, `+${n} أخرى`);
 function calloutText(o) {
+  if (o.kind === 'three') {
+    const part = x => x.group === 'carried' ? L(`${sLabel(x.a.stage)}, was due ${fmtD(x.a.finish)}`, `${sLabel(x.a.stage)}، كان مستحقاً ${fmtD(x.a.finish)}`)
+      : x.a.stage === 'cast' ? L(`Cast ${fmtRange(x.a.start, x.a.finish)}`, `الصب ${fmtRange(x.a.start, x.a.finish)}`) : `${sLabel(x.a.stage)} ${fmtRange(x.a.start, x.a.finish)}`;
+    const xs = o.cast ? [o.xs.find(x => x.a === o.cast), ...o.xs.filter(x => x.a !== o.cast)] : o.xs;
+    return xs.slice(0, 3).map(part).join(' · ') + (xs.length > 3 ? ` · ${T_MORE(xs.length - 3)}` : '');
+  }
+  if (o.kind === 'sleeve') return sleevePinText(o);
   if (o.kind === 'change') return o.xs.slice(0, 3).map(x => `${sLabel(x.a.stage)} ${Math.round(x.from)} ${L('→', '←')} ${Math.round(x.to)}%${x.site ? L(' (site)', ' (الموقع)') : ''}`).join(' · ') + (o.xs.length > 3 ? ` · ${T_MORE(o.xs.length - 3)}` : '') + (o.m3 >= 0.1 ? L(` · about ${fmtM3(o.m3)} cast`, ` · حوالي ${fmtM3(o.m3)} مصبوبة`) : '');
   if (o.days != null) return `${daysText(o)} · ${L('plan', 'المخطط')} ${pct(o.plan)}${L(', done ', '، المنجز ')}${pct(o.act)}${o.a ? ` · ${sLow(o.a.stage)} ${L('to', 'حتى')} ${fmtD(o.a.finish)}` : ''}`;
   const xs = [...o.xs].sort((p, q) => p.a.start - q.a.start);
@@ -1193,7 +1436,7 @@ function placeCallouts() {
   }
   const W = box.clientWidth, H = box.clientHeight, v = new THREE.Vector3();
   const pins = [...box.querySelectorAll('.pin')], calls = [...box.querySelectorAll('.call')];
-  const pts = list.map(o => { v.copy(anchorOf(o.w)).project(three.camera); return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, front: v.z < 1 }; });
+  const pts = list.map(o => { v.copy(pinAnchor(o)).project(three.camera); return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, front: v.z < 1 }; });
   for (let i = 0; i < pts.length; i++) for (let j = 0; j < i; j++) { // keep pins from sitting on top of each other
     if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < 22) { pts[i].x += 22; j = -1; }
   }
@@ -1228,6 +1471,7 @@ function setupPicking(canvas) {
     down = null;
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    if (three.sleeves?.visible) { const i = pickSleeve(e.clientX - r.left, e.clientY - r.top, r.width, r.height); if (i >= 0) { selectSleeve(i); return; } }
     ray.setFromCamera(ndc, three.camera);
     const hits = ray.intersectObject(three.mesh, false);
     if (!hits.length) { select(-1); return; }
@@ -1236,27 +1480,95 @@ function setupPicking(canvas) {
     select(three.triOwner[h.faceIndex]);
   });
 }
-function select(n) { S.sel = n; paintSelection(); renderCard(); saveHash(); if (n >= 0 && guideStep === GUIDE.length - 1) closeGuide(); }
+function select(n) { const had = S.selSleeve >= 0; S.sel = n; S.selSleeve = -1; if (had) paint(); paintSelection(); renderCard(); saveHash(); if (n >= 0 && guideStep === GUIDE.length - 1) closeGuide(); }
+function selectSleeve(i) { S.selSleeve = i; S.sel = -1; paintSelection(); paint(); renderCard(); saveHash(); if (guideStep === GUIDE.length - 1) closeGuide(); }
 
 /* ---------- Panel rendering ---------- */
 function renderKpis() {
-  const k = DATA.kpi; const cc = concreteCast();
+  const k = DATA.kpi; const cc = concreteCast(); const sd = scheduleDays();
   const cp = cc.tot ? cc.cast / cc.tot * 100 : null, pp = cc.tot ? cc.plan / cc.tot * 100 : null;
   const gap = (k.actCum ?? 0) - (k.planCum ?? 0);
-  const fin = parseDash(k.finish), bl = parseDash(k.blFinish);
+  const fin = DATA.fcFinish ?? parseDash(k.finish), bl = DATA.blFinish ?? parseDash(k.blFinish);
   const late = fin != null && bl != null ? Math.round((fin - bl) / DAY) : null;
   const p2 = v => v == null || isNaN(v) ? '—' : `${(+v).toFixed(2)}%`; // the dashboard's own figures, as it shows them
+  const mono = v => `<span class="mono">${esc(v)}</span>`;
   const behind = L('Behind', 'متأخر');
   const cells = [
-    { bad: cp != null && cp < pp - 5, label: L('Structure cast', 'صب الهيكل'), tag: behind, value: cp != null ? Math.round(cp) + '%' : '—',
-      sub: `${L('Plan', 'المخطط')} <span class="mono">${pp != null ? Math.round(pp) + '%' : '—'}</span> · <span class="mono">${esc(fmtM3(cc.cast))}</span> ${L('of', 'من')} <span class="mono">${esc(fmtM3(cc.tot))}</span>` },
     { bad: gap < -5, label: L('Whole project', 'المشروع كاملاً'), tag: behind, value: p2(k.actCum),
-      sub: `${L('Plan', 'المخطط')} <span class="mono">${esc(p2(k.planCum))}</span>${k.spi != null ? ` · SPI <span class="mono">${esc((+k.spi).toFixed(2))}</span>` : ''}` },
+      sub: `${L('Plan', 'المخطط')} ${mono(p2(k.planCum))}${k.spi != null ? ` · SPI ${mono((+k.spi).toFixed(2))}` : ''}`,
+      tip: L(`Done ${p2(k.actCum)} against ${p2(k.planCum)} planned at the data date, from the dashboard.`, `المنجز ${p2(k.actCum)} مقابل ${p2(k.planCum)} مخطط في تاريخ البيانات، من لوحة المتابعة.`) },
+    { bad: cp != null && cp < pp - 5, label: L('Structure cast', 'صب الهيكل'), tag: behind, value: cp != null ? Math.round(cp) + '%' : '—',
+      sub: `${L('Plan', 'المخطط')} ${mono(pp != null ? Math.round(pp) + '%' : '—')} · ${mono(Math.round(cc.cast))}/${mono(fmtM3(cc.tot))}`,
+      tip: L('Concrete cast in the structural model, by volume, with the site updates.', 'الخرسانة المصبوبة في النموذج الإنشائي حسب الحجم، مع تحديثات الموقع.') },
+    sd ? { bad: sd.d < -3, good: sd.d > 3, label: L('Schedule', 'الجدول الزمني'), tag: sd.d < 0 ? behind : L('Ahead', 'متقدم'),
+      value: sd.d === 0 ? L('On plan', 'حسب الخطة') : cnt(Math.abs(sd.d), 'day'),
+      sub: L(`Done = plan at ${mono(fmtD(sd.es))}`, `المنجز = خطة ${mono(fmtD(sd.es))}`),
+      tip: L(`The plan reached ${p2(k.actCum)} on ${fmtD(sd.es, true)}. The data date is ${fmtD(DATA.dataDate, true)}, so the work is about ${plural(Math.abs(sd.d), 'day')} ${sd.d < 0 ? 'behind' : 'ahead of'} the plan.`,
+        `بلغت الخطة ${p2(k.actCum)} في ${fmtD(sd.es, true)}، وتاريخ البيانات ${fmtD(DATA.dataDate, true)}، أي أن العمل ${sd.d < 0 ? 'متأخر عن' : 'متقدم على'} الخطة بحوالي ${cnt(Math.abs(sd.d), 'day', true)}.`) } : null,
     { bad: late > 0, label: L('Forecast finish', 'الانتهاء المتوقع'), tag: late > 0 ? L(`+${late} days`, `+${late} يوماً`) : '', value: fmtD(fin),
-      sub: `${fin != null ? `<span class="mono">${new Date(fin).getUTCFullYear()}</span> · ` : ''}${L('baseline', 'الأساسية')} <span class="mono">${esc(fmtD(bl))}</span>` },
-  ];
-  const anyTag = cells.some(c => c.bad);
-  $('#kpis').innerHTML = cells.map(c => `<div class="kpi${c.bad ? ' bad' : ''}"><span class="kl">${c.label}</span>${anyTag ? `<span class="kt${c.bad ? '' : ' none'}">${esc(c.bad ? c.tag : '—')}</span>` : ''}<b>${esc(c.value)}</b><span class="ks">${c.sub}</span></div>`).join('');
+      sub: `${fin != null ? `${mono(new Date(fin).getUTCFullYear())} · ` : ''}${L('baseline', 'الأساسية')} ${mono(fmtD(bl))}`,
+      tip: L(`The dashboard forecasts the finish on ${fmtD(fin, true)}; the baseline finish is ${fmtD(bl, true)}.`, `تتوقع لوحة المتابعة الانتهاء في ${fmtD(fin, true)}؛ والانتهاء حسب الخطة الأساسية ${fmtD(bl, true)}.`) },
+  ].filter(Boolean);
+  const anyTag = cells.some(c => c.bad || c.good);
+  $('#kpis').innerHTML = cells.map(c => `<div class="kpi${c.bad ? ' bad' : ''}" title="${esc(c.tip)}"><span class="kl">${c.label}</span>${anyTag ? `<span class="kt${c.bad ? '' : c.good ? ' good' : ' none'}">${esc(c.bad || c.good ? c.tag : '—')}</span>` : ''}<b>${esc(c.value)}</b><span class="ks">${c.sub}</span></div>`).join('');
+  renderCurve();
+}
+/* ---------- S-curve: the dashboard's cumulative plan and actual, week by week ---------- */
+function curvePoints() {
+  const C = DATA.curve; const out = []; if (!C) return out;
+  C.t.forEach((t, i) => {
+    if (t == null) return;
+    const first = !out.length;
+    out.push({ t, i, p: C.plan[i] ?? (first ? 0 : null), a: t <= DATA.dataDate ? (C.act[i] ?? (first ? 0 : null)) : null });
+  });
+  return out;
+}
+function renderCurve() {
+  const fig = $('#curve'), sec = $('#curveSec'); if (!fig) return;
+  const pts = curvePoints(), P = pts.filter(q => q.p != null), A = pts.filter(q => q.a != null);
+  if (P.length < 3) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const W = Math.max(260, Math.round(fig.clientWidth || 320)), H = 172, m = { l: 34, r: 14, t: 16, b: 22 };
+  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, DATA.fcFinish || 0);
+  const X = t => m.l + (t - t0) / (t1 - t0) * (W - m.l - m.r), Y = v => m.t + (1 - v / 100) * (H - m.t - m.b);
+  const path = (arr, k) => arr.map((q, j) => `${j ? 'L' : 'M'}${X(q.t).toFixed(1)} ${Y(q[k]).toFixed(1)}`).join('');
+  let g = '';
+  for (const v of [0, 25, 50, 75, 100]) g += `<line class="gl${v ? '' : ' base'}" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/>${v % 50 ? '' : `<text class="yl" x="${m.l - 6}" y="${Y(v) + 3.5}">${v}%</text>`}`;
+  const months = []; for (let d = new Date(t0), mt = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); mt <= t1; d = new Date(mt), mt = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)) months.push(mt);
+  const every = AR() || (W - m.l - m.r) / Math.max(1, months.length) < 30 ? 2 : 1;
+  months.forEach((t, j) => {
+    g += `<line class="tk" x1="${X(t)}" x2="${X(t)}" y1="${H - m.b}" y2="${H - m.b + 4}"/>`;
+    if (j % every === 0 && X(t) < W - m.r - 14) g += `<text class="xl" x="${X(t) + 3}" y="${H - 7}">${esc(new Date(t).toLocaleDateString(LOC(), { month: 'short', timeZone: 'UTC' }))}</text>`;
+  });
+  const xd = X(DATA.dataDate), right = xd > W - 70;
+  g += `<line class="dd" x1="${xd}" x2="${xd}" y1="${m.t - 6}" y2="${H - m.b}"/><text class="ddl" x="${xd + (right ? -4 : 4)}" y="${m.t - 6}" text-anchor="${right ? 'end' : 'start'}">${esc(fmtD(DATA.dataDate))}</text>`;
+  g += `<path class="pl" d="${path(P, 'p')}"/><path class="al" d="${path(A, 'a')}"/>`;
+  const sd = scheduleDays(), ac = DATA.kpi.actCum, pc = DATA.kpi.planCum;
+  if (sd && Math.abs(sd.d) >= 1 && ac != null) {
+    const xa = X(sd.es), y = Y(ac);
+    g += `<line class="es ${sd.d < 0 ? 'bad' : 'good'}" x1="${xa}" x2="${xd}" y1="${y}" y2="${y}"/><circle class="esd" cx="${xa}" cy="${y}" r="3"/>
+      <text class="esl" x="${Math.min(xa, xd) - 6}" y="${y - 6}">${esc(sd.d < 0 ? L(`${plural(-sd.d, 'day')} behind`, `متأخر ${cnt(-sd.d, 'day', true)}`) : L(`${plural(sd.d, 'day')} ahead`, `متقدم ${cnt(sd.d, 'day', true)}`))}</text>`;
+  }
+  const lastP = P[P.length - 1];
+  g += `<text class="lab mute" x="${X(lastP.t) - 4}" y="${Y(lastP.p) + 15}" text-anchor="end">${L('Plan', 'المخطط')}</text>`;
+  if (A.length) { const la = A[A.length - 1]; g += `<circle class="dot al" cx="${X(la.t)}" cy="${Y(la.a)}" r="3.5"/><text class="lab" x="${X(la.t) + 6}" y="${Y(la.a) + 4}">${L('Actual', 'الفعلي')} ${esc(pct(la.a))}</text>`; }
+  if (pc != null) g += `<circle class="dot pl" cx="${xd}" cy="${Y(pc)}" r="3"/>`;
+  const label = L(`S-curve. At ${fmtD(DATA.dataDate, true)} the plan is ${pct(pc)} and the work done is ${pct(ac)}.`, `منحنى S. في ${fmtD(DATA.dataDate, true)} المخطط ${pct(pc)} والمنجز ${pct(ac)}.`);
+  fig.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}">${g}<line class="hx" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/><rect class="hit" x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}"/></svg><div class="tip" hidden></div>`;
+  const svg = fig.querySelector('svg'), hx = fig.querySelector('.hx'), tip = fig.querySelector('.tip');
+  const show = ev => {
+    const r = svg.getBoundingClientRect(); const x = (ev.clientX - r.left) * W / r.width;
+    let best = pts[0]; for (const q of pts) if (Math.abs(X(q.t) - x) < Math.abs(X(best.t) - x)) best = q;
+    const bx = X(best.t); hx.setAttribute('x1', bx); hx.setAttribute('x2', bx); hx.setAttribute('visibility', 'visible');
+    const gapTxt = best.a != null && best.p != null ? (best.a - best.p < 0 ? L(`Behind by ${(best.p - best.a).toFixed(2)} points`, `متأخر بفارق ${(best.p - best.a).toFixed(2)} نقطة`) : L(`Ahead by ${(best.a - best.p).toFixed(2)} points`, `متقدم بفارق ${(best.a - best.p).toFixed(2)} نقطة`)) : '';
+    tip.innerHTML = `<b>${L('Week to', 'الأسبوع حتى')} ${esc(fmtD(best.t, true))}</b><span><i class="pl"></i>${L('Plan', 'المخطط')} <span class="mono">${best.p != null ? best.p.toFixed(2) + '%' : '—'}</span></span>${best.a != null ? `<span><i class="al"></i>${L('Actual', 'الفعلي')} <span class="mono">${best.a.toFixed(2)}%</span></span>` : ''}${gapTxt ? `<span class="g">${esc(gapTxt)}</span>` : ''}`;
+    tip.hidden = false;
+    const fx = bx * r.width / W; const tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(r.width - tw, fx < r.width / 2 ? fx + 10 : fx - tw - 10)) + 'px'; tip.style.top = '6px';
+  };
+  const hide = () => { hx.setAttribute('visibility', 'hidden'); tip.hidden = true; };
+  svg.addEventListener('pointermove', show); svg.addEventListener('pointerdown', show); svg.addEventListener('pointerleave', hide);
+  $('#curveTable').innerHTML = `<table class="acts"><thead><tr><th>${L('Week to', 'الأسبوع حتى')}</th><th class="r">${L('Plan', 'المخطط')}</th><th class="r">${L('Actual', 'الفعلي')}</th></tr></thead><tbody>${pts.filter(q => q.i > 0).map(q => `<tr${q.t === DATA.dataDate ? ' class="dd"' : ''}><td>${esc(fmtD(q.t, true))}</td><td class="r">${q.p != null ? q.p.toFixed(2) + '%' : '—'}</td><td class="r">${q.a != null ? q.a.toFixed(2) + '%' : ''}</td></tr>`).join('')}</tbody></table>`;
 }
 function renderFloorProgress() {
   const { rows } = floorProgress();
@@ -1338,6 +1650,12 @@ function healthRows() {
     .sort((a, b) => lineNo(a) - lineNo(b));
   R.push([docProbs.length ? 'warn' : DOCS.file ? 'ok' : 'info', DOCS.file ? `documents.csv: ${cnt(nDocs, 'link')}${docProbs.length ? L(`, ${docProbs.length} to fix`, `، ${docProbs.length} للتصحيح`) : ''}` : L('No documents file yet', 'لا يوجد ملف مستندات بعد'),
     docProbs.length ? `<ul class="plain">${docProbs.slice(0, 5).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : DOCS.file ? L('WIR, MIR, photos and other links show on the element cards.', 'تظهر طلبات الفحص WIR وMIR والصور والروابط الأخرى في بطاقات العناصر.') : L('Add documents.csv next to the 4D page to show WIR, MIR, photos and SharePoint links on the element cards.', 'أضف ملف documents.csv بجانب صفحة النموذج لعرض طلبات WIR وMIR والصور وروابط SharePoint في بطاقات العناصر.')]);
+  if (SLV.info) {
+    const nl = SLV.marks.length;
+    R.push([SLV.problems.length ? 'warn' : SLV.file ? 'ok' : 'info', SLV.file ? `sleeves.csv: ${cnt(nl, 'line')}${SLV.problems.length ? L(`, ${SLV.problems.length} to fix`, `، ${SLV.problems.length} للتصحيح`) : ''}` : L('No sleeve register yet', 'لا يوجد سجل للجلب بعد'),
+      SLV.problems.length ? `<ul class="plain">${SLV.problems.slice(0, 5).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : L(`${SLV.list.length} round sleeves from ${esc(String(SLV.info.source || 'the model').replace(/\.rvt$/i, ''))}${parseIso(SLV.info.exported) != null ? `, exported ${esc(fmtD(parseIso(SLV.info.exported), true))}` : ''}. Without a register line, a sleeve shows as cast in once its pour is cast, and as still to provide before that.`,
+        `${SLV.list.length} جلبة دائرية من ${esc(String(SLV.info.source || 'النموذج').replace(/\.rvt$/i, ''))}${parseIso(SLV.info.exported) != null ? `، مُصدَّرة في ${esc(fmtD(parseIso(SLV.info.exported), true))}` : ''}. بدون سطر في السجل تظهر الجلبة مصبوبة بعد صب صبتها، وبانتظار التركيب قبل ذلك.`)]);
+  }
   const dc = CHECKS.filter(c => c.kind === 'data');
   R.push([dc.length ? 'warn' : 'ok', dc.length ? L(`${plural(dc.length, 'activity has', 'activities have')} dates to check in the dashboard`, `أنشطة بتواريخ تحتاج مراجعة في لوحة المتابعة: ${dc.length}`) : L('Activity dates read cleanly', 'تواريخ الأنشطة سليمة'),
     dc.length ? `${esc(dc.map(c => c.act.replace('FUR.M.C.', '')).join(L(', ', '، ')))}. <a href="#checksBox" data-open="checksBox">${L('See programme checks', 'عرض تدقيق البرنامج الزمني')}</a>` : '', true]); // listed in the programme checks too, so not flagged at the top
@@ -1368,6 +1686,11 @@ function renderStamp() {
   const key = (pairs, list) => pairs.filter(([g]) => list.some(o => o.group === g)).map(([g, l]) => `<span><i style="background:var(${GROUP_COLOR[g]})"></i>${esc(l)}</span>`).join('');
   if (S.hl) t = `${head(L('Programme check', 'تدقيق البرنامج الزمني'), esc(S.hl.label))}<span class="k">${S.hl.legend.map(([c, l]) => `<span><i style="background:var(${c})"></i>${esc(l)}</span>`).join('')}</span>`;
   else if (S.mode === 'time') t = `${head(L('4D timeline', 'الخط الزمني 4D'), `<span class="mono">${esc(fmtDW(S.t))}</span>`)}<small>${L(`Dashboard dates: recorded to ${esc(fmtD(DATA.dataDate))}, forecast after`, `تواريخ لوحة المتابعة: مسجّلة حتى ${esc(fmtD(DATA.dataDate))}، ومتوقعة بعده`)}</small>`;
+  else if (sleeveOn()) {
+    const n = SLV.status.filter(x => x.s === 'pending').length, pins = S.pins || [];
+    t = `${head(L('MEP sleeves', 'جلب الأعمال الكهروميكانيكية'), L(`${plural(n, 'sleeve')} to provide`, `${cnt(n, 'sleeve')} للتركيب`))}<small>${L(`${SLV.list.length} round sleeves from the structural model, drawn larger than real size${pins.length ? `. Next pour: ${esc(fmtD(pins[0].due))}` : ''}`, `${SLV.list.length} جلبة دائرية من النموذج الإنشائي، مرسومة أكبر من حجمها الحقيقي${pins.length ? `. الصبة التالية: ${esc(fmtD(pins[0].due))}` : ''}`)}</small>
+      <span class="k">${['svpend', 'svprov', 'svcast', 'svmiss'].filter(g => g !== 'svmiss' || (S.counts?.svmiss || 0) > 0).map(g => `<span><i style="background:var(${GROUP_COLOR[g]})"></i>${esc({ svpend: L('To provide', 'للتركيب'), svprov: L('Provided', 'مركّبة'), svcast: L('Cast in', 'مصبوبة'), svmiss: L('Check', 'للتحقق') }[g])}</span>`).join('')}</span>`;
+  }
   else if (changeOn()) {
     t = `${head(L('Last week', 'الأسبوع الماضي'), `${L('Done since', 'المنجز منذ')} ${D(PREV.dataDate, true)}`)}<small>${L(`Dashboard ${esc(fmtD(PREV.dataDate))} to ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `, plus site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `لوحة المتابعة من ${esc(fmtD(PREV.dataDate))} إلى ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `، مع تحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
       <span class="k">${key([['chcast', L('Cast', 'صُبّ')], ['chprog', L('Moved on', 'تقدّم')]], S.pins || [])}<span><i style="background:var(--before)"></i>${L('Built before', 'منفّذ سابقاً')}</span></span>`;
@@ -1377,6 +1700,11 @@ function renderStamp() {
       <span class="k">${key([['late', L('Late', 'متأخر')], ['behind', L('Behind plan', 'خلف الخطة')]], S.pins || [])}</span>`;
   }
   else if (S.mode === 'pva') t = `${head(L('Plan vs actual', 'المخطط والفعلي'), D(DATA.dataDate, true))}<small>${L("Baseline plan % against the dashboard's actual %", 'نسبة الخطة الأساسية مقابل النسبة الفعلية في لوحة المتابعة')}</small>`;
+  else if (weekOn() && S.win === 'three') {
+    const W = windows().three; const list = S.pins || weekItems();
+    t = `${head(esc(W.title), `<span class="mono">${esc(fmtRange(W.from, W.to, true))}</span>`)}<small>${L(`Coloured by the week the concrete is cast, or the week work starts. Dashboard ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `, site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `اللون حسب أسبوع الصب، أو أسبوع بدء العمل. لوحة المتابعة ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? `، وتحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
+      <span class="k">${WEEK_GROUPS.filter(g => g !== 'od' || list.some(o => o.group === 'od')).map(g => `<span><i style="background:var(${GROUP_COLOR[g]})"></i>${esc(weekHead(g, W, true))}</span>`).join('')}</span>`;
+  }
   else if (weekOn()) {
     const w = curWin();
     t = `${head(esc(w.label), `<span class="mono">${esc(fmtRange(w.from, w.to, true))}</span>`)}<small>${L(`Structural work from the dashboard of ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` and site updates to ${esc(fmtD(DATA.asOf))}` : ''}`, `الأعمال الإنشائية من لوحة المتابعة بتاريخ ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? ` وتحديثات الموقع حتى ${esc(fmtD(DATA.asOf))}` : ''}`)}</small>
@@ -1400,15 +1728,17 @@ function renderLegend() {
     renderStamp(); return;
   }
   const defs = legendDefs();
-  $('#legTitle').textContent = weekOn() ? L(`Focus: ${curWin().name}`, `التركيز: ${curWin().name}`) : delayOn() ? L('Focus: top delays', 'التركيز: أكبر التأخيرات') : changeOn() ? L(`Focus: done since ${prevDate()}`, `التركيز: المنجز منذ ${prevDate()}`)
+  $('#legTitle').textContent = sleeveOn() ? L('Focus: MEP sleeves', 'التركيز: جلب MEP') : weekOn() ? L(`Focus: ${curWin().name}`, `التركيز: ${curWin().name}`) : delayOn() ? L('Focus: top delays', 'التركيز: أكبر التأخيرات') : changeOn() ? L(`Focus: done since ${prevDate()}`, `التركيز: المنجز منذ ${prevDate()}`)
     : { status: L('Site status colours', 'ألوان حالة الموقع'), pva: L('Plan vs actual colours', 'ألوان المخطط مقابل الفعلي'), time: L('Status on the chosen date', 'الحالة في التاريخ المختار') }[S.mode];
   $('#legNote').textContent = S.legendFilter ? L('tap again to show all', 'اضغط مرة أخرى لإظهار الكل') : L('tap a colour to show only those', 'اضغط على لون لإظهار عناصره فقط');
-  $('#legend').innerHTML = defs.filter(d => (S.counts?.[d.k] || 0) > 0 || ['built', 'next', 'none', 'ontrack', 'behind', 'notdue', 'dim'].includes(d.k)).map(d => {
+  $('#legend').innerHTML = defs.filter(d => (S.counts?.[d.k] || 0) > 0 || ['built', 'next', 'none', 'ontrack', 'behind', 'notdue', 'dim', 'wkw1', 'wkw2', 'wkw3', 'svpend', 'svprov', 'svcast'].includes(d.k)).map(d => {
     const n = S.counts?.[d.k] || 0;
     const sw = d.c === 'ghost' ? '<span class="sw ghost"></span>' : `<span class="sw" style="background:var(${d.c})"></span>`;
     return `<li role="button" tabindex="0" data-k="${d.k}" aria-pressed="${S.legendFilter === d.k}">${sw}<span>${esc(d.label)}</span></li>`;
   }).join('');
-  $('#legHint').textContent = pinsOn() ? L('Numbers on the model match the list below. Tap a number to see that work alone.', 'الأرقام على النموذج تطابق القائمة أدناه. اضغط على رقم لعرض ذلك العمل وحده.') : {
+  $('#legHint').textContent = weekOn() && S.win === 'three' ? L('Each piece of work takes the colour of the week its concrete is cast in, or the week it starts if it is not cast within these 3 weeks. Numbers on the model match the list below.', 'يأخذ كل عمل لون الأسبوع الذي تُصب فيه خرسانته، أو أسبوع بدئه إن لم يُصب خلال هذه الأسابيع الثلاثة. الأرقام على النموذج تطابق القائمة أدناه.')
+    : sleeveOn() ? L('Sleeves are drawn larger than real size so they can be seen. Numbers mark the pours that still have sleeves to confirm. Tap a sleeve for its details.', 'تُرسم الجلب أكبر من حجمها الحقيقي لتظهر بوضوح. الأرقام تشير إلى الصبات التي ما زالت فيها جلب بانتظار التأكيد. اضغط على جلبة لعرض تفاصيلها.')
+    : pinsOn() ? L('Numbers on the model match the list below. Tap a number to see that work alone.', 'الأرقام على النموذج تطابق القائمة أدناه. اضغط على رقم لعرض ذلك العمل وحده.') : {
     status: L(`From each activity's % complete in the dashboard${DATA.siteUsed.length ? ', updated with the site updates below' : ''}. Numbers count model elements.`, `من نسبة إنجاز كل نشاط في لوحة المتابعة${DATA.siteUsed.length ? '، مع تحديثات الموقع أدناه' : ''}. الأرقام تمثل عدد عناصر النموذج.`),
     pva: L('Compares the baseline plan % with the dashboard\'s actual % at its data date. Site updates are not included here.', 'يقارن نسبة الخطة الأساسية بالنسبة الفعلية في لوحة المتابعة بتاريخ البيانات. لا تُحتسب تحديثات الموقع هنا.'),
     time: L('Drag the date bar or press play. Each activity\'s progress is spread evenly over its dates.', 'اسحب شريط التاريخ أو اضغط تشغيل. يُوزَّع إنجاز كل نشاط بالتساوي على مدته.'),
@@ -1431,35 +1761,144 @@ function actRow(a, x = {}) {
     <span class="t">${esc(aName(a))}</span><span class="p">${esc(pct(a.act))}</span>
     <span class="m">${esc(a.short)} · ${esc(where)}<br>${esc(fmtRange(a.start, a.finish))}${fl}${m3 ? ` · ${L('about', 'حوالي')} ${esc(fmtM3(m3))} ${L('concrete', 'خرسانة')}` : ''}${flags.length ? '<br>' + flags.join(' · ') : ''}</span></button></li>`;
 }
-// "Done since last week": what moved on between the last two weekly updates, plus site updates since.
-function pastHtml() {
-  if (!PREV || PREV.forDate !== DATA.dataDate) return `<div class="past"><h2><span>${L('Done since last week', 'المنجز منذ الأسبوع الماضي')}</span></h2><p class="sum">${L("Reading last week's dashboard…", 'جارٍ قراءة لوحة متابعة الأسبوع الماضي…')}</p></div>`;
-  if (PREV.none) return '';
-  const CH = changeItems(); const cast = CH.filter(o => o.group === 'chcast'), prog = CH.filter(o => o.group === 'chprog');
-  const names = xs => AR() ? listJoin(xs.slice(0, 3).map(o => wName(o.w))) + (xs.length > 3 ? ` و${xs.length - 3} أخرى` : '')
-    : listJoin(xs.slice(0, 3).map(o => o.w.name.replace(/^./, c => c.toLowerCase()))) + (xs.length > 3 ? ` and ${xs.length - 3} more` : '');
-  const m3 = sum(cast, o => o.m3);
-  const txt = CH.length ? [cast.length ? L(`Concrete cast: ${names(cast)}${m3 >= 0.1 ? ` (about ${fmtM3(m3)})` : ''}.`, `تم صب: ${names(cast)}${m3 >= 0.1 ? ` (حوالي ${fmtM3(m3)})` : ''}.`) : '',
-    prog.length ? L(`Moved on: ${names(prog)}.`, `تقدّم العمل في: ${names(prog)}.`) : ''].filter(Boolean).join(' ') : L('No progress recorded since then.', 'لم يُسجَّل أي تقدم منذ ذلك الحين.');
-  return `<div class="past"><h2><span>${L('Done since', 'المنجز منذ')} ${esc(fmtD(PREV.dataDate))}</span><small>${L('dashboard', 'لوحة المتابعة')} ${esc(fmtD(PREV.dataDate))} ${L('to', 'إلى')} ${esc(fmtD(DATA.dataDate))}${DATA.siteUsed.length ? L(`, site to ${esc(fmtD(DATA.asOf))}`, `، الموقع حتى ${esc(fmtD(DATA.asOf))}`) : ''}</small></h2>
-    <p class="sum">${esc(txt)}</p>
-    ${CH.length ? `<div class="acts-row"><button class="btn${changeOn() ? ' on' : ''}" type="button" data-changes aria-pressed="${changeOn()}">${changeOn() ? T_FULL() : L('Show it in 3D', 'اعرضه في النموذج')}</button></div>` : ''}
-    ${changeOn() ? `<ul class="list">${CH.map(o => `<li><button type="button" data-item="${esc(o.w.key)}" aria-pressed="${S.focusItem === o.w.key}"><span class="num" style="${pinStyle(o.group)}">${o.n}</span><span class="t">${esc(itemLabel(o.w))}</span><span class="p"></span><span class="m">${esc(calloutText(o))}</span></button></li>`).join('')}</ul>` : ''}</div>`;
+/* What changed this week: the last two weekly updates of the dashboard compared, structural activities only, with
+   the site updates since. The numbered list (when shown in 3D) matches the pins on the model. */
+function weekChanges() {
+  if (!PREV || PREV.none || PREV.forDate !== DATA.dataDate) return null;
+  const fin = [], started = [], moved = [], slipped = [], earlier = [];
+  for (const a of DATA.acts.values()) {
+    if (!isStruct(a) || !PREV.acts.has(a.id)) continue;
+    const p0 = PREV.acts.get(a.id), p1 = a.dashAct;
+    if (p1 >= 99.5 && p0 < 99.5) fin.push(a);
+    else if (p0 <= 0 && p1 > 0) started.push(a);
+    else if (p1 > p0 + 0.5) moved.push(a);
+    const f0 = PREV.fin.get(a.id);
+    if (p1 < 99.5 && f0 != null && a.finish != null) {
+      const d = Math.round((a.finish - f0) / DAY);
+      if (d >= 1) slipped.push({ a, d, f0 }); else if (d <= -1) earlier.push({ a, d, f0 });
+    }
+  }
+  const byStart = (x, y) => (x.a || x).start - (y.a || y).start || (x.a || x).id.localeCompare((y.a || y).id);
+  [fin, started, moved, slipped, earlier].forEach(l => l.sort(byStart));
+  const W = windows().three;
+  return { fin, started, moved, slipped, earlier, soon: slipped.filter(x => x.a.start <= W.to), later: slipped.filter(x => x.a.start > W.to), W,
+    act0: PREV.actCum, act1: DATA.kpi.actCum, plan0: PREV.planCum, plan1: DATA.kpi.planCum, f0: PREV.finish, f1: DATA.fcFinish };
+}
+const T_CHG = () => L('What changed this week', 'ما تغيّر هذا الأسبوع');
+function siteWords(u) {
+  const by = new Map();
+  for (const [id, v] of Object.entries(u.progress)) {
+    const a = DATA.acts.get(id); if (!a) continue;
+    const it = itemsOfAct(id).find(w => w.els.length); const k = it ? (AR() ? wName(it) : wLow(it)) : a.short;
+    by.set(k, [...(by.get(k) || []), `${sLow(a.stage)} ${Math.round(v)}%`]);
+  }
+  return [...by].map(([k, xs]) => `${k}: ${listJoin(xs)}`).join(L('; ', '؛ '));
+}
+const signed = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
+function renderChanges() {
+  const box = $('#changes'); if (!box || !DATA) return;
+  if (!PREV || PREV.forDate !== DATA.dataDate) { box.hidden = false; box.innerHTML = `<h2><span>${T_CHG()}</span></h2><p class="sum">${L("Reading last week's dashboard…", 'جارٍ قراءة لوحة متابعة الأسبوع الماضي…')}</p>`; return; }
+  if (PREV.none) { box.hidden = false; box.innerHTML = `<h2><span>${T_CHG()}</span></h2><p class="sum">${L("Last week's dashboard is not available on this link, so there is nothing to compare yet.", 'لوحة متابعة الأسبوع الماضي غير متاحة على هذا الرابط، لذا لا توجد مقارنة بعد.')}</p>`; return; }
+  box.hidden = false;
+  const C = weekChanges(); const D2 = t => `<span class="mono">${esc(fmtD(t))}</span>`;
+  const gain = C.act1 != null && C.act0 != null ? C.act1 - C.act0 : null, want = C.plan1 != null && C.plan0 != null ? C.plan1 - C.plan0 : null;
+  const fd = C.f1 != null && C.f0 != null ? Math.round((C.f1 - C.f0) / DAY) : null;
+  const s1 = gain == null ? '' : L(`Work done went from <span class="mono">${C.act0.toFixed(2)}%</span> to <span class="mono">${C.act1.toFixed(2)}%</span>: <span class="mono">${signed(gain)}</span> points${want != null ? `, against <span class="mono">${signed(want)}</span> planned for the week` : ''}.`,
+    `ارتفع المنجز من <span class="mono">${C.act0.toFixed(2)}%</span> إلى <span class="mono">${C.act1.toFixed(2)}%</span>: <span class="mono">${signed(gain)}</span> نقطة${want != null ? `، مقابل <span class="mono">${signed(want)}</span> مخطط لهذا الأسبوع` : ''}.`);
+  const s2 = fd == null ? '' : fd === 0 ? L(` The forecast finish stayed at ${D2(C.f1)}.`, ` بقي الانتهاء المتوقع ${D2(C.f1)}.`)
+    : L(` The forecast finish moved from ${D2(C.f0)} to ${D2(C.f1)} (${fd > 0 ? `${plural(fd, 'day')} later` : `${plural(-fd, 'day')} earlier`}).`, ` تغيّر الانتهاء المتوقع من ${D2(C.f0)} إلى ${D2(C.f1)} (${fd > 0 ? `تأخر ${cnt(fd, 'day', true)}` : `تقدّم ${cnt(-fd, 'day', true)}`}).`);
+  const cell = (n, l, cls) => `<div class="${cls || ''}"><b>${n}</b><span>${l}</span></div>`;
+  const slipRow = x => `<li><button type="button" data-act="${esc(x.a.id)}" aria-pressed="${S.focusAct === x.a.id}"><span class="dot" style="background:var(--late)"></span>
+      <span class="t">${esc(aName(x.a))}</span><span class="p late">${AR() ? `+${x.d} يوم` : `+${x.d} d`}</span>
+      <span class="m">${esc(x.a.short)} · ${L('finish', 'الانتهاء')} ${esc(fmtD(x.f0))} ${L('→', '←')} ${esc(fmtD(x.a.finish))}${x.a.site ? ` · <span class="tag">${L('site update', 'تحديث الموقع')} ${esc(fmtD(x.a.site.t))}: ${esc(pct(x.a.act))}</span>` : ''}</span></button></li>`;
+  const laterTxt = () => { const g = new Map(); for (const x of C.later) { const k = PKG[x.a.short.split('.')[0] === 'SB' ? 'SB' : x.a.short.split('.')[1]]?.k || 'SB'; g.set(k, [...(g.get(k) || []), x]); }
+    return [...g].sort((p, q) => PKG[p[0]].i - PKG[q[0]].i).map(([k, xs]) => { const lo = Math.min(...xs.map(x => x.d)), hi = Math.max(...xs.map(x => x.d));
+      return `<li>${esc(pLong(PKG[k]))}: ${AR() ? cnt(xs.length, 'activity') : plural(xs.length, 'activity', 'activities')}, ${lo === hi ? L(`+${lo} days`, `+${lo} يوم`) : L(`+${lo} to +${hi} days`, `من +${lo} إلى +${hi} يوم`)}</li>`; }).join(''); };
+  const det = (open, sumTxt, body) => `<details class="chg"${open ? ' open' : ''}><summary>${sumTxt}</summary>${body}</details>`;
+  const CH = changeOn() ? changeItems() : [];
+  const su = DATA.siteUsed;
+  box.innerHTML = `<h2><span>${T_CHG()}</span><small>${L('dashboard', 'لوحة المتابعة')} ${esc(fmtD(PREV.dataDate))} ${L('→', '←')} ${esc(fmtD(DATA.dataDate))}</small></h2>
+    <p class="sum">${s1}${s2}</p>
+    <div class="chgk">${cell(C.fin.length, L('finished', 'انتهى'), C.fin.length ? 'good' : '')}${cell(C.started.length, L('started', 'بدأ'))}${cell(C.moved.length, L('moved on', 'تقدّم'))}${cell(C.slipped.length, L('pushed back', 'تأجّل'), C.slipped.length ? 'bad' : '')}</div>
+    <p class="hint" style="margin:6px 0 10px">${L('Structural activities in the dashboard.', 'الأنشطة الإنشائية في لوحة المتابعة.')}${C.earlier.length ? ' ' + L(`${plural(C.earlier.length, 'activity', 'activities')} moved earlier.`, `تقدّم موعد ${cnt(C.earlier.length, 'activity')}.`) : ''}</p>
+    ${C.fin.length ? det(false, L(`Finished (${C.fin.length})`, `انتهى (${C.fin.length})`), `<ul class="list">${C.fin.map(a => actRow(a)).join('')}</ul>`) : ''}
+    ${C.started.length + C.moved.length ? det(false, L(`Started or moved on (${C.started.length + C.moved.length})`, `بدأ أو تقدّم (${C.started.length + C.moved.length})`), `<ul class="list">${[...C.started, ...C.moved].map(a => actRow(a)).join('')}</ul>`) : ''}
+    ${C.soon.length ? det(false, L(`Pushed back, due in the next 3 weeks (${C.soon.length})`, `تأجّل، ومستحق خلال 3 أسابيع (${C.soon.length})`), `<ul class="list">${C.soon.map(slipRow).join('')}</ul>`) : ''}
+    ${C.later.length ? det(false, L(`Pushed back, later (${C.later.length})`, `تأجّل، لاحقاً (${C.later.length})`), `<ul class="plain">${laterTxt()}</ul>`) : ''}
+    ${su.length ? `<p class="sum" style="margin-top:10px">${L(`Site updates since ${esc(fmtD(DATA.dataDate))}:`, `تحديثات الموقع منذ ${esc(fmtD(DATA.dataDate))}:`)} ${su.map(u => `${esc(siteWords(u))} (${esc(fmtD(u.t))})`).join(L('; ', '؛ '))}.</p>` : ''}
+    <div class="acts-row" style="margin-top:10px"><button class="btn${changeOn() ? ' on' : ''}" type="button" data-changes aria-pressed="${changeOn()}">${changeOn() ? T_FULL() : L('Show it in 3D', 'اعرضه في النموذج')}</button><button class="btn" type="button" data-copy-week>${L('Copy weekly summary', 'نسخ الملخص الأسبوعي')}</button></div>
+    ${changeOn() ? (CH.length ? `<ul class="list">${CH.map(o => `<li><button type="button" data-item="${esc(o.w.key)}" aria-pressed="${S.focusItem === o.w.key}"><span class="num" style="${pinStyle(o.group)}">${o.n}</span><span class="t">${esc(itemLabel(o.w))}</span><span class="p"></span><span class="m">${esc(calloutText(o))}</span></button></li>`).join('')}</ul>` : `<p class="empty">${L('Nothing in the model moved on since then.', 'لم يتقدّم أي عنصر في النموذج منذ ذلك الحين.')}</p>`) : ''}`;
+}
+// A short weekly update to paste into an email or chat for management, the client and the designer.
+function weeklyText() {
+  const k = DATA.kpi, sd = scheduleDays(), cc = concreteCast(), C = weekChanges(), W = windows().three, P = pours(lookAhead(W));
+  const p2 = v => v == null ? '—' : `${(+v).toFixed(2)}%`;
+  const items = as => listJoin(uniq(as.flatMap(a => itemsOfAct(a.id).filter(w => w.els.length)).map(w => AR() ? wName(w) : wLow(w))));
+  const out = [L(`Al-Furaih Villa, structure: weekly update, data date ${fmtD(DATA.dataDate, true)}`, `فيلا الفريح، الهيكل الإنشائي: التحديث الأسبوعي، تاريخ البيانات ${fmtD(DATA.dataDate, true)}`), ''];
+  out.push(L(`Progress: ${p2(k.actCum)} done against ${p2(k.planCum)} planned${k.spi != null ? ` (SPI ${(+k.spi).toFixed(2)})` : ''}${sd ? `; ${sd.d < 0 ? `about ${plural(-sd.d, 'day')} behind` : sd.d > 0 ? `about ${plural(sd.d, 'day')} ahead of` : 'on'} the plan` : ''}.`,
+    `الإنجاز: ${p2(k.actCum)} منجز مقابل ${p2(k.planCum)} مخطط${k.spi != null ? ` (SPI ${(+k.spi).toFixed(2)})` : ''}${sd ? `؛ ${sd.d < 0 ? `متأخر عن الخطة بحوالي ${cnt(-sd.d, 'day', true)}` : sd.d > 0 ? `متقدم على الخطة بحوالي ${cnt(sd.d, 'day', true)}` : 'حسب الخطة'}` : ''}.`));
+  if (C && C.act1 != null && C.act0 != null) out.push(L(`This week: ${signed(C.act1 - C.act0)} points${C.plan1 != null && C.plan0 != null ? ` against ${signed(C.plan1 - C.plan0)} planned` : ''}.${C.fin.length ? ` ${plural(C.fin.length, 'structural activity', 'structural activities')} finished${items(C.fin) ? `: ${items(C.fin)}` : ''}.` : ''}`,
+    `هذا الأسبوع: ${signed(C.act1 - C.act0)} نقطة${C.plan1 != null && C.plan0 != null ? ` مقابل ${signed(C.plan1 - C.plan0)} مخطط` : ''}.${C.fin.length ? ` الأنشطة الإنشائية المنتهية: ${C.fin.length}${items(C.fin) ? ` (${items(C.fin)})` : ''}.` : ''}`));
+  const fd = C && C.f1 != null && C.f0 != null ? Math.round((C.f1 - C.f0) / DAY) : null;
+  if (DATA.fcFinish != null) out.push(L(`Forecast finish: ${fmtD(DATA.fcFinish, true)}${fd ? ` (${fd > 0 ? `${plural(fd, 'day')} later` : `${plural(-fd, 'day')} earlier`} than last week)` : ''}${DATA.blFinish != null ? `; baseline ${fmtD(DATA.blFinish, true)}` : ''}.`,
+    `الانتهاء المتوقع: ${fmtD(DATA.fcFinish, true)}${fd ? ` (${fd > 0 ? `بعد ${cnt(fd, 'day', true)}` : `قبل ${cnt(-fd, 'day', true)}`} مقارنة بالأسبوع الماضي)` : ''}${DATA.blFinish != null ? `؛ الخطة الأساسية ${fmtD(DATA.blFinish, true)}` : ''}.`));
+  if (cc.tot) out.push(L(`Concrete cast: ${Math.round(cc.cast / cc.tot * 100)}% of ${fmtM3(cc.tot)} (plan ${Math.round(cc.plan / cc.tot * 100)}%).`, `الخرسانة المصبوبة: ${Math.round(cc.cast / cc.tot * 100)}% من ${fmtM3(cc.tot)} (المخطط ${Math.round(cc.plan / cc.tot * 100)}%).`));
+  if (DATA.siteUsed.length) out.push(`${L('On site since the data date', 'في الموقع منذ تاريخ البيانات')}: ${DATA.siteUsed.map(u => `${siteWords(u)} (${fmtD(u.t)})`).join(L('; ', '؛ '))}.`);
+  out.push('', L(`Next 3 weeks (${fmtRange(W.from, W.to, true)}):`, `الأسابيع الثلاثة القادمة (${fmtRange(W.from, W.to, true)}):`));
+  if (P.length) for (const q of P) out.push(`- ${L('Pour', 'صب')} ${fmtD(q.t)}${q.carried ? L(' (overdue)', ' (متأخر)') : ''}: ${q.items.map(itemLabel).join(L(', ', '، '))}${L(', ', '، ')}${fmtM3(q.m3)}`);
+  else out.push(L('- No pours planned.', '- لا توجد صبات مخططة.'));
+  const pend = SLV.status.filter(x => x.s === 'pending').length, sp = sleevePins()[0];
+  if (SLV.list.length) out.push(L(`MEP sleeves: ${pend} to provide before their pours${sp && sp.due != null ? `; next ${itemLabel(sp.w)}, ${plural(sp.idx.length, 'sleeve')} before ${fmtD(sp.due)}` : ''}.`,
+    `جلب MEP: ${pend} للتركيب قبل صباتها${sp && sp.due != null ? `؛ التالي ${itemLabel(sp.w)}، ${cnt(sp.idx.length, 'sleeve')} قبل ${fmtD(sp.due)}` : ''}.`));
+  out.push('', L(`4D view: ${shareUrl()}`, `رابط النموذج: ${shareUrl()}`));
+  return out.join('\n');
+}
+function lookHead(W) {
+  const seg = k => `<button type="button" data-win="${k}" aria-pressed="${S.win === k}">${W[k].label}<small>${esc(fmtRange(W[k].from, W[k].to))}</small></button>`;
+  return `<h2><span>${L('Planned structural work', 'الأعمال الإنشائية المخططة')}</span><small>${L('weeks run Friday to Thursday', 'الأسبوع من الجمعة إلى الخميس')}</small></h2>
+    <div class="seg" role="group" aria-label="${L('Look-ahead', 'الفترة القادمة')}">${['this', 'next', 'three'].map(seg).join('')}</div>`;
+}
+// The 3-week list: work items grouped by week, each with a strip of the three weeks (grey: work, colour: the pour).
+function threeBody(W) {
+  const la = lookAhead(W); const items = threeWeekItems(); const P = pours(la);
+  const inItems = new Set(items.flatMap(o => o.xs.map(x => x.a.id)));
+  const loose = la.filter(x => !inItems.has(x.a.id)); // activities with no elements in the model
+  const gOf = x => x.group === 'carried' ? 'od' : WEEK_GROUPS[1 + weekIdx(x.a.start, W)];
+  const span = W.to + DAY - W.from;
+  const strip = (xs, g) => `<span class="gw" aria-hidden="true"><s style="inset-inline-start:33.333%"></s><s style="inset-inline-start:66.667%"></s>${xs.map(x => {
+    if (x.group === 'carried') return '<b></b>';
+    const a = Math.max(x.a.start, W.from), b = Math.min(x.a.finish + DAY, W.to + DAY);
+    return `<i style="inset-inline-start:${((a - W.from) / span * 100).toFixed(2)}%;width:${Math.max(1.6, (b - a) / span * 100).toFixed(2)}%;background:var(${x.a.stage === 'cast' ? GROUP_COLOR[g] : '--faint'})"></i>`;
+  }).join('')}</span>`;
+  const row = o => `<li><button type="button" data-item="${esc(o.w.key)}" aria-pressed="${S.focusItem === o.w.key}">${weekOn() ? `<span class="num" style="${pinStyle(o.group)}">${o.n}</span>` : `<span class="dot" style="background:var(${GROUP_COLOR[o.group]})"></span>`}
+      <span class="t">${esc(itemLabel(o.w))}</span><span class="p">${o.cast ? `<span class="pl">${L('pour', 'صب')}</span> ${esc(fmtD(o.cast.start))}` : ''}</span>
+      <span class="m">${esc(calloutText(o))}${strip(o.xs, o.group)}</span></button></li>`;
+  const counts = WEEK_GROUPS.map(g => [g, items.filter(o => o.group === g).length + loose.filter(x => gOf(x) === g).length]).filter(([, n]) => n);
+  const sumTxt = counts.map(([g, n]) => g === 'od' ? L(`${n} overdue`, `${n} متأخر`) : L(`${n} in week ${g[1]}`, `${n} في الأسبوع ${g[1]}`));
+  const pourWeek = p => p.carried ? 'od' : WEEK_GROUPS[1 + weekIdx(p.t, W)];
+  return `<p class="sum">${items.length + loose.length ? L(`${esc(listJoin(sumTxt))}. Tap one to see it in the model.`, `${esc(listJoin(sumTxt))}. اضغط على أي منها لرؤيته في النموذج.`) : L('Nothing is due in these 3 weeks.', 'لا يوجد عمل مستحق في هذه الأسابيع الثلاثة.')}</p>
+    <div class="acts-row"><button class="btn${S.weekFocus ? ' on' : ''}" type="button" data-week aria-pressed="${S.weekFocus}">${S.weekFocus ? T_FULL() : L('Show only this in 3D', 'اعرض هذه فقط في النموذج')}</button><button class="btn" type="button" data-copy>${L('Copy list', 'نسخ القائمة')}</button></div>
+    <p class="gkey"><span class="gw" aria-hidden="true"><s style="inset-inline-start:33.333%"></s><s style="inset-inline-start:66.667%"></s><i style="inset-inline-start:4%;width:22%;background:var(--faint)"></i><i style="inset-inline-start:45%;width:5%;background:var(--wk2)"></i></span>${L('The 3 weeks: grey bars are work, a coloured bar is the pour.', 'الأسابيع الثلاثة: الأشرطة الرمادية للأعمال، والشريط الملوّن للصب.')}</p>
+    <ul class="list">${WEEK_GROUPS.map(g => {
+      const xs = items.filter(o => o.group === g), ls = loose.filter(x => gOf(x) === g);
+      if (!xs.length && !ls.length) return '';
+      return `<li class="grp wk"><i style="background:var(${GROUP_COLOR[g]})"></i>${esc(weekHead(g, W))}</li>` + xs.map(row).join('') + ls.map(x => actRow(x.a, x)).join('');
+    }).join('')}</ul>
+    ${P.length ? `<div class="pour"><b>${L('Concrete to pour: about', 'الخرسانة المطلوب صبها: حوالي')} ${esc(fmtM3(sum(P, p => p.m3)))}</b> ${L(`in ${plural(P.length, 'pour')}, from the model volumes:`, `في ${cnt(P.length, 'pour', true)}، من كميات النموذج:`)}<br>${P.map(p => `<span class="wkdot" style="background:var(${GROUP_COLOR[pourWeek(p)]})"></span>${esc(fmtD(p.t))}${p.carried ? ` <span class="late">${L('overdue', 'متأخر')}</span>` : ''}: ${esc(p.items.map(itemLabel).join(L(', ', '، ')))}, ${esc(fmtM3(p.m3))}`).join('<br>')}</div>` : ''}`;
 }
 const T_FULL = () => L('Show the full model', 'إظهار النموذج كاملاً');
 function renderModeBody() {
   const box = $('#modeBody');
   if (S.mode === 'status') {
     const W = windows(); const w = W[S.win];
+    if (S.win === 'three') { box.innerHTML = lookHead(W) + threeBody(w); return; }
     const la = lookAhead(w); const P = pours(la);
     if (weekOn()) { const wm = new Map(weekItems().map(o => [o.w.key, o])); for (const x of la) { const o = itemsOfAct(x.a.id).map(it => wm.get(it.key)).find(Boolean); if (o) { x.num = o.n; x.numGroup = o.group; } } }
     const n = g => la.filter(x => x.group === g).length;
     const seg = k => `<button type="button" data-win="${k}" aria-pressed="${S.win === k}">${W[k].label}<small>${esc(fmtRange(W[k].from, W[k].to))}</small></button>`;
     const parts = AR() ? [n('carried') && `${n('carried')} مرحّل`, n('progress') && `${n('progress')} قيد التنفيذ`, n('starting') && `${n('starting')} تبدأ`].filter(Boolean)
       : [n('carried') && `${n('carried')} carried over`, n('progress') && `${n('progress')} in progress`, n('starting') && `${n('starting')} starting`].filter(Boolean);
-    box.innerHTML = pastHtml() + `<h2><span>${L('Planned structural work', 'الأعمال الإنشائية المخططة')}</span><small>${L('weeks run Friday to Thursday', 'الأسبوع من الجمعة إلى الخميس')}</small></h2>
-      <div class="seg" role="group" aria-label="${L('Look-ahead', 'الفترة القادمة')}">${['this', 'next', 'three'].map(seg).join('')}</div>
-      <p class="sum">${la.length ? L(`${esc(listJoin(parts))} by ${esc(fmtD(w.to, true))}. Tap one to see it in the model.`, `${esc(listJoin(parts))} حتى ${esc(fmtD(w.to, true))}. اضغط على أي منها لرؤيته في النموذج.`) : L('Nothing is due in this window.', 'لا يوجد عمل مستحق في هذه الفترة.')}</p>
+    box.innerHTML = lookHead(W) + `<p class="sum">${la.length ? L(`${esc(listJoin(parts))} by ${esc(fmtD(w.to, true))}. Tap one to see it in the model.`, `${esc(listJoin(parts))} حتى ${esc(fmtD(w.to, true))}. اضغط على أي منها لرؤيته في النموذج.`) : L('Nothing is due in this window.', 'لا يوجد عمل مستحق في هذه الفترة.')}</p>
       <div class="acts-row"><button class="btn${S.weekFocus ? ' on' : ''}" type="button" data-week aria-pressed="${S.weekFocus}">${S.weekFocus ? T_FULL() : L('Show only this in 3D', 'اعرض هذه فقط في النموذج')}</button><button class="btn" type="button" data-copy>${L('Copy list', 'نسخ القائمة')}</button></div>
       <ul class="list">${GROUPS.map(g => {
         const xs = la.filter(x => x.group === g); if (!xs.length) return '';
@@ -1482,6 +1921,47 @@ function renderModeBody() {
     box.innerHTML = `<h2><span>${L('Working on', 'الأعمال الجارية في')} ${esc(fmtD(t, true))}</span><small>${cnt(active.length, 'activity')}</small></h2>
       <ul class="list">${active.length ? active.slice(0, 14).map(a => actRow(a)).join('') : `<li class="empty">${L('No structural activity on this date.', 'لا يوجد نشاط إنشائي في هذا التاريخ.')}</li>`}</ul>`;
   }
+}
+// The sleeve register in the side panel: pours with sleeves still to provide, soonest first.
+function renderSleeves() {
+  const box = $('#sleeveSec'); if (!box) return;
+  if (!SLV.list.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const by = { pending: [], provided: [], cast: [], missed: [], notneeded: [] };
+  SLV.status.forEach((st, i) => by[st.s].push(i));
+  const pins = sleevePins(), on = sleeveOn(), next = pins.find(o => o.group === 'svpend');
+  const n = k => by[k].length;
+  const parts = [n('pending') && L(`${n('pending')} to provide before their pours`, `${n('pending')} للتركيب قبل صباتها`), n('provided') && L(`${n('provided')} provided`, `${n('provided')} مركّبة`),
+    n('cast') && L(`${n('cast')} in concrete already cast`, `${n('cast')} في خرسانة مصبوبة`), n('missed') && L(`${n('missed')} to check`, `${n('missed')} للتحقق`), n('notneeded') && L(`${n('notneeded')} not needed`, `${n('notneeded')} غير مطلوبة`)].filter(Boolean);
+  const row = o => `<li><button type="button" data-item="${esc(o.w.key)}" aria-pressed="${S.focusItem === o.w.key}">${on ? `<span class="num" style="${pinStyle(o.group)}">${o.n}</span>` : `<span class="dot" style="background:var(${GROUP_COLOR[o.group]})"></span>`}
+      <span class="t">${esc(itemLabel(o.w))}</span><span class="p">${o.due != null ? `<span class="pl">${L('pour', 'صب')}</span> ${esc(fmtD(o.due))}` : ''}</span>
+      <span class="m">${esc(sleeveRowText(o))}<span class="svtags">${o.idx.map(i => `<i>${esc(SLV.list[i].id)}</i>`).join(' ')}</span></span></button></li>`;
+  const byPour = k => { const g = new Map(); for (const i of by[k]) { const p = SLV.list[i].pour; g.set(p, [...(g.get(p) || []), i]); } return [...g].sort((a, b) => PKG[a[0].split('/')[0]].i - PKG[b[0].split('/')[0]].i); };
+  const done = k => n(k) ? `<details class="more"><summary>${{ provided: L('Provided', 'مركّبة'), cast: L('In concrete already cast', 'في خرسانة مصبوبة'), notneeded: L('Not needed', 'غير مطلوبة') }[k]} (${n(k)})</summary><ul class="plain">${byPour(k).map(([p, xs]) => `<li>${esc(WORK[p] ? itemLabel(WORK[p]) : p)}: ${esc(sleeveSizes(xs))} <span class="svtags">${xs.map(i => `<i>${esc(SLV.list[i].id)}</i>`).join(' ')}</span></li>`).join('')}</ul></details>` : '';
+  box.innerHTML = `<h2><span>${L('MEP sleeves', 'جلب الأعمال الكهروميكانيكية')}</span><small>${L('builder work, from the structural model', 'أعمال الفتحات، من النموذج الإنشائي')}</small></h2>
+    <p class="sum">${L(`${SLV.list.length} round sleeves: ${esc(listJoin(parts))}.`, `${SLV.list.length} جلبة دائرية: ${esc(listJoin(parts))}.`)}${next ? ' ' + L(`Next: ${esc(itemLabel(next.w))}, ${plural(next.idx.length, 'sleeve')}${next.due != null ? ` before the pour on ${esc(fmtD(next.due, true))}` : ''}.`, `التالي: ${esc(itemLabel(next.w))}، ${cnt(next.idx.length, 'sleeve')}${next.due != null ? ` قبل الصب في ${esc(fmtD(next.due, true))}` : ''}.`) : ''}</p>
+    <div class="acts-row"><button class="btn${on ? ' on' : ''}" type="button" data-sleeves aria-pressed="${on}">${on ? T_FULL() : L('Show sleeves in 3D', 'اعرض الجلب في النموذج')}</button><button class="btn" type="button" data-copy-sleeves>${L('Copy list', 'نسخ القائمة')}</button></div>
+    ${pins.length ? `<ul class="list">${pins.map(row).join('')}</ul>` : `<p class="empty">${L('No sleeves are waiting for a pour.', 'لا توجد جلب بانتظار الصب.')}</p>`}
+    ${done('provided')}${done('cast')}${done('notneeded')}
+    ${SLV.problems.length ? `<ul class="probs">${SLV.problems.slice(0, 6).map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    <p class="hint">${L('Sleeves are fixed with the formwork and steel, and checked before each pour. Mark them in <code>sleeves.csv</code> (date, sleeve, status, by, note): one line can name a sleeve (GF-07), a pour (GF/BEAM) or a floor (GF).', 'تُركَّب الجلب مع الشدات والحديد وتُفحص قبل كل صبة. سجّلها في <code>sleeves.csv</code> (date, sleeve, status, by, note): يمكن أن يذكر السطر جلبة (GF-07) أو صبة (GF/BEAM) أو دوراً (GF).')}${SLV.info?.rect ? ' ' + L(`The ${SLV.info.rect} rectangular openings are not included yet.`, `الفتحات المستطيلة (${SLV.info.rect}) غير مشمولة بعد.`) : ''}</p>`;
+}
+function sleevesText() {
+  const pins = sleevePins(); const cnts = k => SLV.status.filter(x => x.s === k).length;
+  const out = [L(`Al-Furaih Villa: MEP sleeves to provide before the pours, ${fmtD(localToday(), true)}`, `فيلا الفريح: جلب الأعمال الكهروميكانيكية المطلوب تركيبها قبل الصب، ${fmtD(localToday(), true)}`),
+    L(`From the structural model (${SLV.list.length} round sleeves) and the dashboard of ${fmtD(DATA.dataDate, true)}${DATA.siteUsed.length ? `, with site updates to ${fmtD(DATA.asOf, true)}` : ''}.`, `من النموذج الإنشائي (${SLV.list.length} جلبة دائرية) ولوحة المتابعة بتاريخ ${fmtD(DATA.dataDate, true)}${DATA.siteUsed.length ? `، مع تحديثات الموقع حتى ${fmtD(DATA.asOf, true)}` : ''}.`), ''];
+  for (const o of pins) out.push(`${o.n}. ${itemLabel(o.w)}: ${o.due != null ? L(`pour ${fmtD(o.due)}, `, `الصب ${fmtD(o.due)}، `) : ''}${sleeveRowText(o)}: ${o.idx.map(i => SLV.list[i].id).join(L(', ', '، '))}`);
+  if (!pins.length) out.push(L('No sleeves are waiting for a pour.', 'لا توجد جلب بانتظار الصب.'));
+  out.push('', L(`Provided: ${cnts('provided')}. In concrete already cast: ${cnts('cast')}.`, `مركّبة: ${cnts('provided')}. في خرسانة مصبوبة: ${cnts('cast')}.`));
+  if (SLV.info?.rect) out.push(L(`The ${SLV.info.rect} rectangular openings are not included yet.`, `الفتحات المستطيلة (${SLV.info.rect}) غير مشمولة بعد.`));
+  out.push('', L(`4D view: ${shareUrl()}`, `رابط النموذج: ${shareUrl()}`));
+  return out.join('\n');
+}
+function toggleSleeves(on = !S.sleeveFocus) {
+  S.sleeveFocus = on; S.selSleeve = -1;
+  if (on) { S.mode = 'status'; S.weekFocus = false; S.changeFocus = false; S.focus = null; S.focusAct = null; S.focusItem = null; S.focusSite = null; S.hl = null; S.focusCheck = null; S.legendFilter = null; S.sel = -1; play(false); }
+  renderAll();
+  if (on) { const ps = SLV.list.filter((s, i) => SLV.shown[i]).map(s => s.p3); if (ps.length) flyToBox(ps); showStage(); }
 }
 function renderFloors() {
   $('#floors').innerHTML = [{ k: 'ALL', name: 'All', note: 'The whole structure', ar: 'الكل', noteAr: 'الهيكل كاملاً' }, ...[...PKGS].reverse()].map(p => `<button type="button" data-floor="${p.k}" aria-pressed="${S.floor === p.k}" title="${esc(pNote(p))}">${esc(pName(p))}</button>`).join('');
@@ -1604,8 +2084,33 @@ function docRows(w) {
   return `<ul class="docs">${ds.map(d => `<li><span class="dt">${esc(docType(d.type))}</span><span class="dm"><b dir="auto">${esc(d.ref || d.note || docType(d.type))}</b>${d.status ? ` <span class="ds${d.code ? ' c' + d.code : ''}">${esc(d.status)}</span>` : ''}
     <span class="k">${d.t != null ? esc(fmtD(d.t, true)) + ' · ' : ''}${esc(d.ids.map(id => id.replace('FUR.M.C.', '')).join(', '))}${d.ref && d.note ? ' · <span dir="auto">' + esc(d.note) + '</span>' : ''}</span></span>${d.link ? `<a class="btn sm" href="${esc(d.link)}" target="_blank" rel="noopener">${L('Open', 'فتح')}</a>` : ''}</li>`).join('')}</ul>`;
 }
+function renderSleeveCard(card) {
+  const i = S.selSleeve, s = SLV.list[i], st = SLV.status[i], w = WORK[s.pour], m = st.mark;
+  const g = SV_GROUP[st.s]; const c = g ? GROUP_COLOR[g] : '--ghost';
+  const stTxt = { pending: st.due != null ? L(`To provide before the pour on ${fmtD(st.due, true)}`, `تُركَّب قبل الصب في ${fmtD(st.due, true)}`) : L('To provide before the pour', 'تُركَّب قبل الصب'),
+    provided: L('Provided: marked on site', 'مركّبة: مؤكدة من الموقع'), cast: L('In concrete already cast', 'في خرسانة مصبوبة'),
+    missed: L('Check on site: the pour is cast while the register says pending', 'تحقق في الموقع: صُبّت الخرسانة والسجل يقول بانتظار التركيب'), notneeded: L('Not needed', 'غير مطلوبة') }[st.s];
+  const who = (() => { try { return localStorage.getItem('fur4d.by') || ''; } catch (e) { return ''; } })();
+  const line = [isoDay(localToday()), s.id, 'provided', who, ''].map(csvCell).join(',');
+  const src = m ? `<span class="tag">sleeves.csv</span> ${L('line', 'السطر')} ${m.line}${m.t != null ? ` · ${esc(fmtD(m.t, true))}` : ''}${m.by ? ` · <bdi>${esc(m.by)}</bdi>` : ''}${m.note ? `: <bdi>${esc(m.note)}</bdi>` : ''}`
+    : st.s === 'cast' ? L('Its pour is cast, so it is shown as cast in. There is no line for it in sleeves.csv.', 'صُبّت خرسانة صبتها، لذا تظهر كمصبوبة. لا يوجد لها سطر في sleeves.csv.')
+    : L('There is no line for it in sleeves.csv yet, so it is shown as still to provide.', 'لا يوجد لها سطر في sleeves.csv بعد، لذا تظهر بانتظار التركيب.');
+  card.innerHTML = `<button class="x" type="button" aria-label="${L('Close', 'إغلاق')}" data-close>×</button>
+    <h3>${L('Sleeve', 'جلبة')} <span class="mono">${esc(s.id)}</span> · <span class="mono">${isoTxt('Ø' + s.dia)}</span></h3>
+    <div class="k">${esc(w ? itemLabel(w) : s.pour)}</div>
+    <div class="k">${s.v ? L('Vertical, through the slab', 'رأسية، عبر البلاطة') : L('Horizontal, through a beam or wall', 'أفقية، عبر كمرة أو جدار')} · ${L('length', 'الطول')} <span class="mono">${esc((+s.len || 0).toFixed(2))} ${L('m', 'م')}</span></div>
+    <div class="st"><i style="background:var(${c})"></i>${esc(stTxt)}</div>
+    <p class="note">${src}</p>
+    <h4>${L('Pour', 'الصب')}</h4>
+    <p class="note">${st.act ? `<span class="mono">${esc(st.act.short)}</span> ${esc(aName(st.act))}: ${esc(fmtRange(st.act.start, st.act.finish))} · ${esc(pct(st.act.act))}` : L('No casting activity found for this pour in the dashboard.', 'لا يوجد نشاط صب لهذه الصبة في لوحة المتابعة.')}</p>
+    ${st.s === 'pending' || st.s === 'missed' ? `<h4>${L('Mark it on site', 'تأكيدها من الموقع')}</h4><p class="note">${L('Add this line to sleeves.csv once it is fixed:', 'أضف هذا السطر إلى sleeves.csv بعد تركيبها:')}<br><code dir="ltr">${esc(line)}</code></p>` : ''}
+    <div class="row">${st.s === 'pending' || st.s === 'missed' ? `<button type="button" data-copy-svline="${esc(line)}">${L('Copy line', 'نسخ السطر')}</button>` : ''}${w && w.els.length ? `<button type="button" data-isolate="${esc(s.pour)}">${L('Show this pour', 'إظهار هذه الصبة')}</button>` : ''}${S.focus ? `<button type="button" data-clear>${L('Show all sleeves', 'إظهار كل الجلب')}</button>` : ''}</div>`;
+  card.classList.add('on');
+  $('#stage').classList.add('carded');
+}
 function renderCard() {
   const card = $('#card');
+  if (S.selSleeve >= 0 && sleeveOn() && SLV.status[S.selSleeve]) { renderSleeveCard(card); return; }
   if (S.sel < 0) { card.classList.remove('on'); card.innerHTML = ''; $('#stage').classList.remove('carded'); return; }
   const e = M.els[S.sel]; const w = WORK[e.w];
   const st = stateText(w); const pv = pva(w);
@@ -1631,10 +2136,13 @@ function renderCard() {
   $('#stage').classList.add('carded');
 }
 function renderAll() {
-  if (S.mode !== 'status') { S.weekFocus = false; S.changeFocus = false; }
+  if (S.mode !== 'status') { S.weekFocus = false; S.changeFocus = false; S.sleeveFocus = false; }
+  if (!sleeveOn()) S.selSleeve = -1;
+  sleeveStatus();
   if (S.mode !== 'pva') S.delayFocus = false;
-  renderKpis(); renderFloorProgress(); renderSource(); renderWarn(); renderModeBody(); renderFloors(); renderSite(); renderChecks(); renderHealth(); paint();
-  $('#bWeek').setAttribute('aria-pressed', String(weekOn())); $('#bDone').setAttribute('aria-pressed', String(changeOn())); $('#lens').hidden = S.mode !== 'status';
+  renderKpis(); renderChanges(); renderFloorProgress(); renderSource(); renderWarn(); renderModeBody(); renderSleeves(); renderFloors(); renderSite(); renderChecks(); renderHealth(); paint();
+  $('#bWeek').setAttribute('aria-pressed', String(weekOn() && S.win !== 'three')); $('#bLook').setAttribute('aria-pressed', String(weekOn() && S.win === 'three'));
+  $('#bDone').setAttribute('aria-pressed', String(changeOn())); $('#bSleeve').setAttribute('aria-pressed', String(sleeveOn())); $('#bSleeve').hidden = !SLV.list.length; $('#lens').hidden = S.mode !== 'status';
   $('#tl').classList.toggle('on', S.mode === 'time');
   $('#stage').classList.toggle('timeline', S.mode === 'time');
   document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.mode === S.mode)));
@@ -1645,7 +2153,22 @@ function renderAll() {
 }
 
 /* ---------- Copy and print ---------- */
+function threeListText() {
+  const W = windows().three; const items = threeWeekItems(); const P = pours(lookAhead(W));
+  const out = [L(`Al-Furaih Villa: 3-week look-ahead, ${fmtRange(W.from, W.to, true)}`, `فيلا الفريح: نظرة على 3 أسابيع، ${fmtRange(W.from, W.to, true)}`),
+    L(`Structural work from the dashboard of ${fmtD(DATA.dataDate, true)}${DATA.siteUsed.length ? `, with site updates to ${fmtD(DATA.asOf, true)}` : ''}. Coloured by the week the concrete is cast, or the week work starts.`,
+      `الأعمال الإنشائية من لوحة المتابعة بتاريخ ${fmtD(DATA.dataDate, true)}${DATA.siteUsed.length ? `، مع تحديثات الموقع حتى ${fmtD(DATA.asOf, true)}` : ''}. اللون حسب أسبوع الصب، أو أسبوع بدء العمل.`)];
+  for (const g of WEEK_GROUPS) {
+    const xs = items.filter(o => o.group === g); if (!xs.length) continue;
+    out.push('', weekHead(g, W) + ':');
+    for (const o of xs) out.push(`${o.n}. ${itemLabel(o.w)}: ${calloutText(o)}`);
+  }
+  if (P.length) { out.push('', L(`Concrete to pour (model volumes): about ${fmtM3(sum(P, p => p.m3))}`, `الخرسانة المطلوب صبها (كميات النموذج): حوالي ${fmtM3(sum(P, p => p.m3))}`)); for (const p of P) out.push(`- ${fmtD(p.t)}${p.carried ? L(' (overdue)', ' (متأخر)') : ''}: ${p.items.map(itemLabel).join(L(', ', '، '))}${L(', ', '، ')}${fmtM3(p.m3)}`); }
+  out.push('', L(`4D view: ${shareUrl()}`, `رابط النموذج: ${shareUrl()}`));
+  return out.join('\n');
+}
 function listText() {
+  if (S.win === 'three') return threeListText();
   if (AR()) return listTextAr();
   const w = curWin(); const la = lookAhead(w); const P = pours(la);
   const out = [`Al-Furaih Villa: structural work, ${w.name} (${fmtRange(w.from, w.to, true)})`,
@@ -1699,7 +2222,8 @@ const MM = SHEET.w / 297;
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('image')); i.src = src; });
 function viewTitle() {
   if (S.hl) { const c = computeChecks().find(x => x.id === S.focusCheck); return `${L('Programme check', 'تدقيق البرنامج الزمني')}: ${c ? c.title : S.hl.label}`; }
-  if (weekOn()) { const w = curWin(); return `${w.label}: ${fmtRange(w.from, w.to, true)}`; }
+  if (sleeveOn()) return `${L('MEP sleeves to provide', 'جلب MEP للتركيب')}: ${fmtD(localToday(), true)}`;
+  if (weekOn()) { const w = curWin(); return `${w.title}: ${fmtRange(w.from, w.to, true)}`; }
   if (delayOn()) return `${L('Top delays at', 'أكبر التأخيرات في')} ${fmtD(DATA.dataDate, true)}`;
   if (changeOn()) return `${L('Done since', 'المنجز منذ')} ${fmtD(PREV.dataDate, true)}`;
   if (S.mode === 'pva') return `${L('Plan vs actual at', 'المخطط مقابل الفعلي في')} ${fmtD(DATA.dataDate, true)}`;
@@ -1724,7 +2248,7 @@ function render3D(wPx, hPx) {
   const img = document.createElement('canvas'); img.width = wPx; img.height = hPx; img.getContext('2d').drawImage(renderer.domElement, 0, 0);
   const v = new THREE.Vector3();
   const proj = p => { v.copy(p).project(camera); return { x: (v.x + 1) / 2 * wPx, y: (1 - v.y) / 2 * hPx, front: v.z < 1 }; };
-  const pins = shownPins().map(o => ({ o, ...proj(anchorOf(o.w)) }));
+  const pins = shownPins().map(o => ({ o, ...proj(pinAnchor(o)) }));
   const b = M.box;
   const levels = (three.controls.getPolarAngle() < 0.45 ? [] : M.info.levels.filter(l => l.name !== 'STREET LEVEL')).map(l => {
     const best = [[b.minX, b.maxZ], [b.maxX, b.maxZ], [b.minX, b.minZ], [b.maxX, b.minZ]].map(([x, z]) => proj(new THREE.Vector3(x, l.elev, z))).reduce((m, q) => q.x < m.x ? q : m);
@@ -1748,7 +2272,7 @@ function sheetList() { // the list beside the picture: what this view is about
   if (S.hl) { const c = computeChecks().find(x => x.id === S.focusCheck); return { head: 'Programme check', items: c ? [{ name: c.title, text: c.text }, ...(c.fix || []).map((f, i) => ({ name: `${i + 1}. ${f.k}`, text: f.t }))] : [] }; }
   if (pinsOn()) {
     const items = shownPins().map(o => ({ n: o.n, g: o.group, name: itemLabel(o.w), text: calloutText(o) }));
-    return { head: weekOn() ? `${curWin().label} · ${fmtRange(curWin().from, curWin().to, true)}` : delayOn() ? `Top delays · data date ${fmtD(DATA.dataDate, true)}` : `Done since ${fmtD(PREV.dataDate, true)}`, items, pins: true };
+    return { head: weekOn() ? `${curWin().title} · ${fmtRange(curWin().from, curWin().to, true)}` : sleeveOn() ? `Sleeves to provide · ${fmtD(localToday(), true)}` : delayOn() ? `Top delays · data date ${fmtD(DATA.dataDate, true)}` : `Done since ${fmtD(PREV.dataDate, true)}`, items, pins: true };
   }
   if (S.mode === 'status') { const w = curWin(); return { head: `Planned: ${w.name} · ${fmtRange(w.from, w.to, true)}`, items: weekItems().map(o => ({ g: o.group, name: itemLabel(o.w), text: calloutText(o) })) }; }
   if (S.mode === 'pva') return { head: `Top delays · data date ${fmtD(DATA.dataDate, true)}`, items: delayItems().map(o => ({ g: o.group, name: itemLabel(o.w), text: calloutText(o) })) };
@@ -1798,7 +2322,7 @@ function drawSheet(lg1, lg2) {
   const cx0 = pic.x + pic.w + 4 * m, cw = X1 - cx0; let y = pic.y;
   const headRow = (text, right) => { g.fillStyle = '#000'; g.fillRect(cx0, y, cw, 6.2 * m); g.font = F(2.2, 400); const rw = right ? g.measureText(right).width + 6 * m : 4 * m; g.fillStyle = '#fff'; g.font = F(2.5, 700); g.textAlign = 'left'; g.fillText(fitText(g, text.toUpperCase(), cw - rw), cx0 + 2 * m, y + 4.3 * m); if (right) { g.textAlign = 'right'; g.font = F(2.2, 400); g.fillText(right, cx0 + cw - 2 * m, y + 4.3 * m); } y += 6.2 * m; };
   const rule = () => { g.fillStyle = '#d6d6d6'; g.fillRect(cx0, y, cw, 0.2 * m); };
-  headRow('Colours', S.hl ? '' : 'elements');
+  headRow('Colours', S.hl ? '' : sleeveOn() ? 'count' : 'elements');
   const hlc = S.hl ? computeChecks().find(x => x.id === S.focusCheck) : null;
   const defs = S.hl ? [...(hlc ? hlc.legend : S.hl.legend).map(([c, l]) => ({ label: l, col: css(c) })), { label: T_ELSE(), col: null }]
     : legendDefs().filter(d => (S.counts?.[d.k] || 0) > 0).map(d => ({ label: d.label, col: d.c === 'ghost' ? null : r.cols[d.k], n: S.counts[d.k] }));
@@ -1814,16 +2338,27 @@ function drawSheet(lg1, lg2) {
   const SL = sheetList(); const bottom = pic.y + pic.h;
   headRow(SL.head, SL.items.length ? String(SL.items.length) : '');
   if (!SL.items.length) { g.font = F(2.45); g.fillStyle = '#555'; g.textAlign = 'left'; g.fillText('Nothing in this list.', cx0 + 2 * m, y + 4.6 * m); }
-  for (let i = 0; i < SL.items.length; i++) {
-    const it = SL.items[i]; const ind = 8 * m;
-    g.font = F(2.45, 700); const nl = wrapText(g, it.name, cw - ind - 2 * m, 2);
-    g.font = F(2.25); const tl = wrapText(g, it.text || '', cw - ind - 2 * m, 3);
-    const rh = (1.6 + nl.length * 3.2 + tl.length * 3 + 1.4) * m;
-    if (y + rh > bottom - (i < SL.items.length - 1 ? 6 * m : 0)) { g.font = F(2.3, 700); g.fillStyle = '#333'; g.textAlign = 'left'; g.fillText(`+ ${SL.items.length - i} more in the 4D view`, cx0 + 2 * m, y + 4.4 * m); break; }
-    if (SL.pins) pinAt(cx0 + 3.8 * m, y + 3.9 * m, it.n, it.g, 2.1 * m);
-    else { g.beginPath(); g.arc(cx0 + 3.8 * m, y + 3.6 * m, 1.2 * m, 0, Math.PI * 2); g.fillStyle = it.g ? r.cols['g:' + it.g] : css(it.c); g.fill(); }
-    g.textAlign = 'left'; g.fillStyle = '#111'; g.font = F(2.45, 700); nl.forEach((l, k) => g.fillText(l, cx0 + ind, y + (4.4 + k * 3.2) * m));
-    g.fillStyle = '#555'; g.font = F(2.25); tl.forEach((l, k) => g.fillText(l, cx0 + ind, y + (4.4 + nl.length * 3.2 + k * 3) * m));
+  // the list: a name line and up to three lines of text each; when that does not fit, two short lines, then one
+  const ind = 8 * m, tw = cw - ind - 2 * m;
+  const lrows = SL.items.map(it => { g.font = F(2.45, 700); const nl = wrapText(g, it.name, tw, 2); g.font = F(2.25); const tl = wrapText(g, it.text || '', tw, 3); return { it, nl, tl, rh: (1.6 + nl.length * 3.2 + tl.length * 3 + 1.4) * m }; });
+  const room = bottom - y, mode = sum(lrows, r => r.rh) <= room ? 0 : lrows.length * 7.3 * m <= room ? 1 : 2;
+  for (let i = 0; i < lrows.length; i++) {
+    const { it, nl, tl } = lrows[i]; const rh = [lrows[i].rh, 7.3 * m, 5.8 * m][mode];
+    if (y + rh > bottom - (i < lrows.length - 1 ? 6 * m : 0)) { g.font = F(2.3, 700); g.fillStyle = '#333'; g.textAlign = 'left'; g.fillText(`+ ${lrows.length - i} more in the 4D view`, cx0 + 2 * m, y + 4.4 * m); break; }
+    const cyy = y + [3.9, 3.4, 2.9][mode] * m;
+    if (SL.pins) pinAt(cx0 + 3.8 * m, cyy, it.n, it.g, mode ? 1.9 * m : 2.1 * m);
+    else { g.beginPath(); g.arc(cx0 + 3.8 * m, mode ? cyy : y + 3.6 * m, 1.2 * m, 0, Math.PI * 2); g.fillStyle = it.g ? r.cols['g:' + it.g] : css(it.c); g.fill(); }
+    g.textAlign = 'left';
+    if (mode === 2) {
+      g.fillStyle = '#111'; g.font = F(2.35, 700); const nm = fitText(g, it.name, tw * 0.62); g.fillText(nm, cx0 + ind, y + 3.8 * m);
+      const nw = g.measureText(nm).width; g.fillStyle = '#555'; g.font = F(2.2); g.fillText(fitText(g, it.text || '', tw - nw - 2.2 * m), cx0 + ind + nw + 2.2 * m, y + 3.8 * m);
+    } else if (mode === 1) {
+      g.fillStyle = '#111'; g.font = F(2.3, 700); g.fillText(fitText(g, it.name, tw), cx0 + ind, y + 3.4 * m);
+      g.fillStyle = '#555'; g.font = F(2.1); g.fillText(fitText(g, it.text || '', tw), cx0 + ind, y + 6.1 * m);
+    } else {
+      g.fillStyle = '#111'; g.font = F(2.45, 700); nl.forEach((l, k) => g.fillText(l, cx0 + ind, y + (4.4 + k * 3.2) * m));
+      g.fillStyle = '#555'; g.font = F(2.25); tl.forEach((l, k) => g.fillText(l, cx0 + ind, y + (4.4 + nl.length * 3.2 + k * 3) * m));
+    }
     y += rh; rule();
   }
   // title block: grey labels, yellow values (AHB form style)
@@ -1950,7 +2485,7 @@ function play(on) {
 }
 
 /* ---------- Focus helpers ---------- */
-function rerenderLists() { renderModeBody(); renderSite(); renderChecks(); renderCard(); }
+function rerenderLists() { renderModeBody(); renderChanges(); renderSleeves(); renderSite(); renderChecks(); renderCard(); }
 function focusItems(keys, label, extra = {}) {
   S.hl = null; S.focusCheck = null; S.legendFilter = null;
   S.focus = new Set(keys); S.focusLabel = label; S.focusAct = extra.act || null; S.focusItem = extra.item || null; S.focusSite = extra.site ?? null;
@@ -1983,7 +2518,7 @@ function showStage() { if (narrow()) $('#work').scrollIntoView({ behavior: match
 function toggleWeek(on = !S.weekFocus, win) {
   if (win) S.win = win;
   S.weekFocus = on;
-  if (on) { S.mode = 'status'; S.changeFocus = false; S.focus = null; S.focusAct = null; S.focusItem = null; S.focusSite = null; S.hl = null; S.focusCheck = null; S.legendFilter = null; S.sel = -1; play(false); }
+  if (on) { S.mode = 'status'; S.changeFocus = false; S.sleeveFocus = false; S.focus = null; S.focusAct = null; S.focusItem = null; S.focusSite = null; S.hl = null; S.focusCheck = null; S.legendFilter = null; S.sel = -1; play(false); }
   renderAll();
   if (on && S.pins?.length) { flyToElements(S.pins.flatMap(o => o.w.els)); showStage(); }
 }
@@ -1991,7 +2526,7 @@ async function toggleChanges(on = !S.changeFocus) {
   if (on) {
     if (!PREV || PREV.forDate !== DATA.dataDate) { toast(L('Reading last week\'s dashboard…', 'جارٍ قراءة لوحة متابعة الأسبوع الماضي…')); await loadPrev(); }
     if (PREV.none) { toast(L('Last week\'s dashboard is not available on this link.', 'لوحة متابعة الأسبوع الماضي غير متاحة على هذا الرابط.')); S.changeFocus = false; renderAll(); return; }
-    S.mode = 'status'; S.weekFocus = false; S.focus = null; S.focusAct = null; S.focusItem = null; S.focusSite = null; S.hl = null; S.focusCheck = null; S.legendFilter = null; S.sel = -1; play(false);
+    S.mode = 'status'; S.weekFocus = false; S.sleeveFocus = false; S.focus = null; S.focusAct = null; S.focusItem = null; S.focusSite = null; S.hl = null; S.focusCheck = null; S.legendFilter = null; S.sel = -1; play(false);
   }
   S.changeFocus = on;
   renderAll();
@@ -2060,6 +2595,8 @@ function viewHash() {
   if (weekOn()) p.set('focus', 'week');
   if (delayOn()) p.set('focus', 'delays');
   if (changeOn()) p.set('focus', 'done');
+  if (sleeveOn()) p.set('focus', 'sleeves');
+  if (sleeveOn() && S.selSleeve >= 0) p.set('sv', SLV.list[S.selSleeve].id);
   if (S.mode === 'time' && S.t != null) p.set('date', isoDay(S.t));
   if (S.sel >= 0) p.set('el', String(M.els[S.sel].id));
   if (AR()) p.set('lang', 'ar');
@@ -2078,7 +2615,8 @@ function readHash() { // returns the camera to restore, if any
   if (PKG[p.get('floor')]) S.floor = p.get('floor');
   S.only = p.get('only') === '1'; $('#tOnly').checked = S.only;
   if (['this', 'next', 'three'].includes(p.get('week'))) S.win = p.get('week');
-  S.weekFocus = p.get('focus') === 'week'; S.delayFocus = p.get('focus') === 'delays'; S.changeFocus = p.get('focus') === 'done';
+  S.weekFocus = p.get('focus') === 'week'; S.delayFocus = p.get('focus') === 'delays'; S.changeFocus = p.get('focus') === 'done'; S.sleeveFocus = p.get('focus') === 'sleeves';
+  const sv = SLV.list.findIndex(x => x.id === p.get('sv')); if (S.sleeveFocus && sv >= 0) S.selSleeve = sv;
   const d = parseIso(p.get('date')); if (d != null) S.t = Math.max(DATA.start, Math.min(DATA.end, d));
   const el = +p.get('el'); if (el) { const e = M.els.find(x => x.id === el); if (e) S.sel = e.n; }
   const cam = (p.get('cam') || '').split(',').map(Number);
@@ -2112,6 +2650,9 @@ function bind() {
     if (t.closest('button[data-week]')) { toggleWeek(); return; }
     if (t.closest('button[data-delays]')) { toggleDelays(); return; }
     if (t.closest('button[data-changes]')) { toggleChanges(); return; }
+    if (t.closest('button[data-sleeves]')) { toggleSleeves(); return; }
+    if (t.closest('button[data-copy-week]')) { if (!PREV || PREV.forDate !== DATA.dataDate) await loadPrev(); const ok = await copyText(weeklyText()); toast(ok ? T_COPIED() : T_NOCOPY()); return; }
+    if (t.closest('button[data-copy-sleeves]')) { const ok = await copyText(sleevesText()); toast(ok ? T_COPIED() : T_NOCOPY()); return; }
     if (t.closest('button[data-copy-delays]')) { const ok = await copyText(delaysText()); toast(ok ? T_COPIED() : T_NOCOPY()); return; }
     if (t.closest('[data-retry]')) { e.preventDefault(); toast(L('Trying the dashboard again…', 'جارٍ إعادة محاولة قراءة لوحة المتابعة…')); refresh(true); return; }
     if (t.closest('[data-howto]')) { e.preventDefault(); openHow(); return; }
@@ -2152,7 +2693,9 @@ function bind() {
     const k = b.dataset.pin; focusItems([k], itemLabel(WORK[k]), { item: k });
   });
   $('#bWeek').addEventListener('click', () => toggleWeek(!(S.weekFocus && S.win === 'next'), 'next'));
+  $('#bLook').addEventListener('click', () => toggleWeek(!(S.weekFocus && S.win === 'three'), 'three'));
   $('#bDone').addEventListener('click', () => toggleChanges());
+  $('#bSleeve').addEventListener('click', () => toggleSleeves());
   const copyLink = async () => {
     const ok = await copyText(shareUrl());
     toast(!ok ? T_NOCOPY() : topLevel && /^https?:/.test(location.href) ? L('Link to this view copied.', 'نُسخ رابط هذا العرض.') : L('Link copied. It opens this view once the 4D is on GitHub.', 'نُسخ الرابط. سيفتح هذا العرض بعد رفع النموذج على GitHub.'));
@@ -2168,6 +2711,7 @@ function bind() {
   $('#tPlan').addEventListener('change', e => { fitView(e.target.checked ? 'top' : '3d'); });
   $('#card').addEventListener('click', e => {
     if (e.target.closest('[data-close]')) { select(-1); return; }
+    const cl = e.target.closest('[data-copy-svline]'); if (cl) { copyText(cl.dataset.copySvline).then(ok => toast(ok ? L('Line copied. Paste it at the end of sleeves.csv.', 'نُسخ السطر. الصقه في نهاية sleeves.csv.') : T_NOCOPY())); return; }
     const iso = e.target.closest('[data-isolate]'); if (iso) { const k = iso.dataset.isolate; focusItems([k], itemLabel(WORK[k]), { item: k }); return; }
     const up = e.target.closest('[data-update]'); if (up) { openSiteForm(up.dataset.update); return; }
     if (e.target.closest('[data-clear]')) { clearFocus(); }
@@ -2204,7 +2748,7 @@ function bind() {
   window.addEventListener('keydown', e => {
     if (guideStep >= 0 && e.key === 'Escape') { closeGuide(); return; }
     if (document.querySelector('dialog[open]')) return; // Escape closes the open card by itself
-    if (e.key === 'Escape') { if (S.sel >= 0) select(-1); else if (S.focus || S.hl || S.legendFilter) clearFocus(); }
+    if (e.key === 'Escape') { if (S.sel >= 0 || S.selSleeve >= 0) select(-1); else if (S.focus || S.hl || S.legendFilter) clearFocus(); }
     if (S.mode === 'time' && !e.target.closest('input,textarea')) {
       if (e.key === 'ArrowRight') { play(false); setT(S.t + DAY); }
       if (e.key === 'ArrowLeft') { play(false); setT(S.t - DAY); }
@@ -2240,6 +2784,7 @@ function applyLang() {
 }
 // Messages read from the site and documents files were written in the old language: read them again.
 function reparseFiles() {
+  parseSleeveReg();
   if (SITEINFO.file && SITEINFO.text) {
     try { const r = SITEINFO.file.endsWith('.csv') ? siteFromCsv(SITEINFO.text) : siteFromJson(SITEINFO.text); SITEINFO = { ...SITEINFO, problems: r.problems }; }
     catch (e) { SITEINFO = { ...SITEINFO, problems: [L(`The file could not be read: ${e.message}.`, `تعذّرت قراءة الملف: ${e.message}.`)] }; }
@@ -2275,8 +2820,8 @@ const GUIDE = [
     body: () => L('Drag to turn it. Scroll or pinch to zoom, and drag with the right button or two fingers to move it. The floor buttons on the model show the building up to one floor.',
       'اسحب لتدويره. استخدم عجلة الفأرة أو إصبعين للتكبير، واسحب بالزر الأيمن أو بإصبعين لتحريكه. أزرار الأدوار على النموذج تعرض المبنى حتى دور معيّن.') },
   { target: () => $('.tabs'), extra: () => $('#lens'), title: () => L('Pick a view', 'اختر طريقة العرض'),
-    body: () => L('Site status shows what is built today. Plan vs actual shows what is late. 4D timeline plays the programme day by day. Last week and Next week, at the top of the model, number one week of work.',
-      '«حالة الموقع» تعرض ما نُفّذ حتى اليوم، و«المخطط والفعلي» يعرض المتأخر، و«الخط الزمني 4D» يشغّل البرنامج يوماً بيوم. وزرّا «الأسبوع الماضي» و«الأسبوع القادم» أعلى النموذج يرقّمان أعمال أسبوع واحد.') },
+    body: () => L('Site status shows what is built today. Plan vs actual shows what is late. 4D timeline plays the programme day by day. Last week, Next week, 3 weeks and Sleeves, at the top of the model, number the work to look at.',
+      '«حالة الموقع» تعرض ما نُفّذ حتى اليوم، و«المخطط والفعلي» يعرض المتأخر، و«الخط الزمني 4D» يشغّل البرنامج يوماً بيوم. وأزرار «الأسبوع الماضي» و«الأسبوع القادم» و«3 أسابيع» و«الجلب» أعلى النموذج ترقّم الأعمال المطلوب متابعتها.') },
   { target: () => $('#stage'), title: () => L('Tap any element', 'اضغط على أي عنصر'),
     body: () => L('Tap a column, beam or slab to see its activities, dates and progress, with WIR, MIR and photo links. Reset brings the whole building back.',
       'اضغط على عمود أو كمرة أو بلاطة لترى أنشطتها وتواريخها ونسبة إنجازها، مع روابط طلبات الفحص WIR وMIR والصور. زر «إعادة الضبط» يعيد المبنى كاملاً.') },
@@ -2334,9 +2879,9 @@ function placeGuide() {
 
 /* ---------- Live refresh ---------- */
 async function refresh(asked = false) {
-  const [r, site, docs] = await Promise.all([loadLive(), loadSiteFile(), loadDocsFile()]);
-  const siteChanged = site.text !== SITEINFO.text || docs.text !== DOCS.text;
-  DOCS = docs;
+  const [r, site, docs, sreg] = await Promise.all([loadLive(), loadSiteFile(), loadDocsFile(), loadSleeveReg()]);
+  const siteChanged = site.text !== SITEINFO.text || docs.text !== DOCS.text || sreg.text !== SLV.text;
+  DOCS = docs; Object.assign(SLV, sreg); parseSleeveReg();
   let next = null;
   if (r.D) { saveLastGood(r.D, r.source); next = prepData(r.D, true, r.source); }
   const recovered = !!next && !!DATA.fail;
@@ -2346,7 +2891,7 @@ async function refresh(asked = false) {
     DATA.fail = { ...r, at: DATA.fail?.at || Date.now(), last: Date.now() };
   }
   if (dashChanged || siteChanged) {
-    if (dashChanged) { const newWeek = next.dataDate !== DATA.dataDate; DATA = next; if (newWeek) { PREV = null; loadPrev().then(() => { if (S.mode === 'status') { renderModeBody(); paint(); } }); } }
+    if (dashChanged) { const newWeek = next.dataDate !== DATA.dataDate; DATA = next; if (newWeek) { PREV = null; loadPrev().then(() => { renderChanges(); if (S.mode === 'status') { renderModeBody(); paint(); } }); } }
     SITE = site.updates; SITEINFO = site; applySite(); CHECKS = computeChecks();
     S.t = Math.max(DATA.start, Math.min(DATA.end, S.t ?? DATA.asOf));
     renderAll(); renderFoot();
@@ -2365,17 +2910,20 @@ async function main() {
   const T = { t0: performance.now() }; window.__4d.t0 = T.t0;
   const step = (f, text) => { bar.style.width = Math.round(f * 100) + '%'; if (text) lab.textContent = text; };
   try {
-    const [model, data, site, docs] = await Promise.all([
+    const [model, data, site, docs, sleeves, sreg] = await Promise.all([
       loadModel(f => step(f * 0.85, `${L('Loading the structure…', 'جارٍ تحميل الهيكل…')} ${Math.round(f * 100)}%`)).then(m => { T.model = performance.now(); return m; }),
       loadData().then(d => { T.data = performance.now(); return d; }),
       loadSiteFile(),
       loadDocsFile(),
+      loadSleeves(),
+      loadSleeveReg(),
     ]);
     M = model; DATA = data; SITE = site.updates; SITEINFO = site; DOCS = docs; DRAFTS = loadDrafts();
+    Object.assign(SLV, sleeves, sreg); placeSleeves(); parseSleeveReg();
     step(0.9, L('Building the 3D view…', 'جارٍ تجهيز العرض ثلاثي الأبعاد…'));
     await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
     applySite(); CHECKS = computeChecks(); S.t = DATA.asOf;
-    initThree(); T.three = performance.now();
+    initThree(); buildSleeveMesh(); T.three = performance.now();
     const cam = readHash();
     if (S.changeFocus) await loadPrev();
     bind(); renderMapping(); renderFoot(); renderAll();
@@ -2384,7 +2932,7 @@ async function main() {
     msg.hidden = true; T.ready = performance.now();
     window.__4d.timing = Object.fromEntries(Object.entries(T).map(([k, v]) => [k, Math.round(v - T.t0)]));
     if (DATA.live || DATA.fail || liveExpected()) setInterval(refresh, REFRESH_MINUTES * 60000);
-    if (!PREV) setTimeout(() => loadPrev().then(() => { if (S.mode === 'status') renderModeBody(); }), 1200); // for "Done since last week"
+    if (!PREV) setTimeout(() => loadPrev().then(() => { renderChanges(); if (S.mode === 'status') renderModeBody(); }), 1200); // for "What changed this week"
     if (!guideSeen()) setTimeout(() => { if (guideStep < 0 && !document.querySelector('dialog[open]')) openGuide(0); }, 700);
   } catch (err) {
     console.error(err);
@@ -2404,6 +2952,6 @@ $('#top').addEventListener('click', e => {
   if (t.closest('#bTheme')) { setTheme(THEME === 'dark' ? 'light' : 'dark'); return; }
   if (t.closest('#bRefresh')) refreshNow();
 });
-window.__4d = { S, get three() { return three; }, get DATA() { return DATA; }, get PREV() { return PREV; }, get M() { return M; }, select, refresh, setLang, setTheme, openGuide };
+window.__4d = { S, get three() { return three; }, get DATA() { return DATA; }, get PREV() { return PREV; }, get M() { return M; }, select, selectSleeve, refresh, setLang, setTheme, openGuide };
 applyLang();
 main();

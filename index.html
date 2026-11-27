@@ -25,7 +25,8 @@
   --accent:#fbeb96;--accent-hi:#fff3b5;--accent-ink:#0b0b0b;--accent-edge:light-dark(#d8c35a,#fbeb96);
   --bad:light-dark(#c0362c,#f2766b);--bad-ink:light-dark(#ffffff,#0b0b0b);--good:light-dark(#1d7a4b,#5fd08f);--warnc:light-dark(#8a6500,#f2d27a);
   --built:#2f8f5b;--form:#e3b23c;--rebar:#e8772e;--cast:#c4552b;--next:#2f6fdc;--late:#d64545;
-  --ghost:light-dark(#aeb3b8,#5a636b);--focus:#2f6fdc;--before:light-dark(#c4c9cd,#525b63)}
+  --ghost:light-dark(#aeb3b8,#5a636b);--focus:#2f6fdc;--before:light-dark(#c4c9cd,#525b63);
+  --wk1:#2f6fdc;--wk2:#d28e05;--wk3:#00a888}
 :root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box;min-width:0}
 html,body{height:100%}
@@ -72,6 +73,7 @@ button,input,select{font:inherit;color:inherit}
 .tools button:hover{border-color:var(--ink)}
 .tools button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
 .tools button[hidden]{display:none}
+.tools .ic{display:none;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .lens{display:inline-flex;border:1px solid var(--edge);border-radius:2px;overflow:hidden}
 .lens[hidden]{display:none}
 .tools .lens button{border:0;border-radius:0;min-height:32px}
@@ -103,11 +105,13 @@ h1{font-size:30px;line-height:1.1;margin:0;font-weight:500;letter-spacing:-.02em
 .banner a{color:var(--ink);font-weight:500;text-underline-offset:3px}
 .banner[hidden]{display:none}
 /* KPI strip */
-.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-bottom:1px solid var(--line);margin-top:-18px}
-.kpi{padding:12px 10px 13px;border-inline-start:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start}
-.kpi:first-child{border-inline-start:0;padding-inline-start:0}
-.kpi:last-child{padding-inline-end:0}
-.kpi .kl{font-size:10.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);line-height:1.3;min-height:2.6em}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid var(--line);margin-top:-18px}
+.kpi{padding:12px 12px 13px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start}
+.kpi:nth-child(-n+2){border-top:0}
+.kpi:nth-child(odd){padding-inline-start:0}
+.kpi:nth-child(even){border-inline-start:1px solid var(--line);padding-inline-end:0}
+.kpi .kl{font-size:10.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);line-height:1.3}
+.kpi .kt.good{color:var(--good)}
 .kpi .kt{margin-top:5px;font:600 10px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;padding:3px 5px;border:1px solid currentColor;border-radius:2px;color:var(--bad);white-space:nowrap}
 .kpi .kt.none{visibility:hidden}
 .kpi b{display:block;margin-top:7px;font:500 22px/1.1 var(--mono);letter-spacing:-.03em;white-space:nowrap}
@@ -115,7 +119,8 @@ h1{font-size:30px;line-height:1.1;margin:0;font-weight:500;letter-spacing:-.02em
 .kpi .ks .mono{color:var(--ink)}
 /* sections */
 .panel > .sec,.panel > details{border-top:1px solid var(--line);padding-top:16px}
-.panel > #floorProg{border-top:0;padding-top:0}
+.panel > #curveSec{border-top:0;padding-top:0}
+.panel > [hidden]{display:none}
 .sec h2{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:0 0 10px;display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
 .sec h2 small{font-weight:400;color:var(--faint);font-size:12px;letter-spacing:0;text-transform:none}
 .hint{color:var(--mute);font-size:12.5px;line-height:1.45;margin:8px 0 0}
@@ -167,6 +172,79 @@ h1{font-size:30px;line-height:1.1;margin:0;font-weight:500;letter-spacing:-.02em
 .chips button{border:1px solid var(--edge);background:transparent;border-radius:2px;padding:6px 12px;font-weight:500;font-size:13px;cursor:pointer;min-height:34px}
 .chips button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink);border-color:var(--chip-on)}
 .toggles{display:grid;gap:8px;margin-top:10px}
+/* S-curve */
+.ckey{display:flex;gap:4px 14px;flex-wrap:wrap;margin:0 0 4px;font-size:12px;color:var(--mute)}
+.ckey > span{display:inline-flex;align-items:center;gap:6px}
+.ckey i{display:inline-block;width:18px;height:0;border-top:2px solid var(--built)}
+.ckey i.pl{border-top:2px dashed var(--mute)}
+.curvefig{position:relative;direction:ltr}
+[dir=rtl] .curvefig .tip{direction:rtl;text-align:right}
+.curvefig svg{display:block;max-width:100%;height:auto;overflow:visible;touch-action:pan-y}
+.curvefig .gl{stroke:var(--line);stroke-width:1}
+.curvefig .gl.base{stroke:var(--edge)}
+.curvefig .yl,.curvefig .xl{font:400 10.5px var(--mono);fill:var(--faint)}
+.curvefig .yl{text-anchor:end}
+.curvefig .tk{stroke:var(--edge)}
+.curvefig .dd{stroke:var(--mute);stroke-width:1;stroke-dasharray:2 3}
+.curvefig .ddl{font:500 10.5px var(--mono);fill:var(--mute)}
+.curvefig path.pl{fill:none;stroke:var(--mute);stroke-width:2;stroke-dasharray:5 4;stroke-linecap:round}
+.curvefig path.al{fill:none;stroke:var(--built);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.curvefig circle.dot{stroke:var(--panel);stroke-width:2}
+.curvefig circle.dot.al{fill:var(--built)}
+.curvefig circle.dot.pl{fill:var(--mute)}
+.curvefig .es{stroke-width:1.5}
+.curvefig .es.bad{stroke:var(--bad)}
+.curvefig .es.good{stroke:var(--good)}
+.curvefig .esd{fill:var(--bad);stroke:var(--panel);stroke-width:1.5}
+.curvefig .esl{font:600 10.5px var(--mono);fill:var(--bad);text-anchor:end}
+.curvefig .lab{font:500 11px var(--sans);fill:var(--ink)}
+.curvefig .lab.mute{fill:var(--mute)}
+.curvefig .hx{stroke:var(--ink);stroke-width:1;opacity:.45}
+.curvefig .hit{fill:transparent;cursor:crosshair}
+.curvefig .tip{position:absolute;z-index:2;pointer-events:none;background:var(--raise);border:1px solid var(--edge);border-radius:2px;padding:6px 8px;font-size:12px;line-height:1.45;display:grid;gap:1px;min-width:150px;box-shadow:0 6px 18px rgb(0 0 0 / .18)}
+.curvefig .tip[hidden]{display:none}
+.curvefig .tip b{font-weight:600}
+.curvefig .tip span{display:flex;align-items:center;gap:6px;color:var(--mute)}
+.curvefig .tip span .mono{color:var(--ink);margin-inline-start:auto}
+.curvefig .tip i{display:inline-block;width:12px;height:0;border-top:2px solid var(--built)}
+.curvefig .tip i.pl{border-top:2px dashed var(--mute)}
+.curvefig .tip .g{color:var(--bad);font-weight:500}
+details.more{font-size:12.5px;margin-top:8px}
+details.more > summary{cursor:pointer;color:var(--ink);font-weight:500}
+details.more table.acts{margin-top:6px;width:100%}
+details.more table.acts tr.dd td{font-weight:600}
+details.more ul.plain{margin:6px 0 0;padding-inline-start:16px;color:var(--mute);line-height:1.5}
+/* what changed this week */
+.chgk{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:2px}
+.chgk div{padding:8px 9px 9px;border-inline-start:1px solid var(--line);display:grid;gap:3px}
+.chgk div:first-child{border-inline-start:0}
+.chgk b{font:500 20px/1.1 var(--mono);letter-spacing:-.02em}
+.chgk span{font-size:10.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);line-height:1.25}
+.chgk .good b{color:var(--good)}
+.chgk .bad b{color:var(--bad)}
+details.chg{border-top:1px solid var(--line)}
+details.chg:last-of-type{border-bottom:1px solid var(--line)}
+details.chg > summary{cursor:pointer;padding:8px 2px;font-size:13px;font-weight:500}
+details.chg > summary:hover{background:var(--chip)}
+details.chg .list{margin:0 0 6px}
+details.chg ul.plain{margin:0 0 10px;padding-inline-start:18px;font-size:12.5px;color:var(--mute);line-height:1.55}
+/* 3-week strips */
+.gw{position:relative;display:block;height:8px;margin:7px 0 2px;background:var(--chip);border-radius:1px;box-shadow:inset 0 0 0 1px var(--line)}
+.gw s{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--edge)}
+.gw i{position:absolute;top:1px;bottom:1px;border-radius:1px}
+.gw b{position:absolute;inset-inline-start:-5px;top:-1px;bottom:-1px;width:3px;background:var(--late);border-radius:1px}
+.gkey{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;align-items:center;font-size:12px;color:var(--mute);margin:0 0 6px;line-height:1.4}
+.gkey .gw{margin:0}
+.wkdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-inline-end:6px;vertical-align:0}
+.list .grp.wk{display:flex;align-items:center;gap:7px}
+.list .grp.wk i{display:inline-block;width:10px;height:10px;border-radius:1px;flex:none}
+.list .p .pl{font:500 10px var(--sans);color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-inline-end:2px}
+/* sleeves */
+.svtags{display:flex;flex-wrap:wrap;gap:0 8px;font:400 11px/1.5 var(--mono);color:var(--faint);margin-top:3px}
+.svtags i{font-style:normal;white-space:nowrap}
+details.more .svtags{display:inline-flex;margin:0}
+.probs{margin:8px 0 0;padding:8px 10px 8px 26px;border:1px solid color-mix(in srgb,var(--bad) 55%,transparent);border-radius:2px;font-size:12.5px;color:var(--mute)}
+[dir=rtl] .probs{padding:8px 26px 8px 10px}
 .tg{display:flex;align-items:center;gap:10px;font-size:13.5px;cursor:pointer}
 .tg input{width:17px;height:17px;accent-color:var(--ink);flex:none}
 .chk{list-style:none;margin:0;padding:0;display:grid;gap:2px}
@@ -371,7 +449,7 @@ dialog::backdrop{background:rgb(0 0 0 / .55)}
 [lang=ar] .hb,.hb[lang=ar],.glang[lang=ar]{font-family:"IBM Plex Sans Arabic",system-ui,sans-serif}
 pre.csv,code{direction:ltr;unicode-bidi:isolate}
 pre.csv{text-align:left}
-[dir=rtl] :is(h1,.eyebrow,.kpi .kl,.kpi .kt,.sec h2,.stag,.tag,.hs,.stamp .ey,.card h4,.list .grp,#health h3.hh,.how h3,.docs .dt,.fld,.acts th,.map th,.panel > details > summary,.gstep){letter-spacing:0}
+[dir=rtl] :is(h1,.eyebrow,.kpi .kl,.kpi .kt,.chgk span,.list .p .pl,.sec h2,.stag,.tag,.hs,.stamp .ey,.card h4,.list .grp,#health h3.hh,.how h3,.docs .dt,.fld,.acts th,.map th,.panel > details > summary,.gstep){letter-spacing:0}
 [dir=rtl] :is(.eyebrow,.kpi .kl,.sec h2,.stamp .ey,.card h4,.list .grp,#health h3.hh,.how h3,.fld,.acts th,.map th,.panel > details > summary){font-size:12.5px}
 [dir=rtl] .list .t,[dir=rtl] .card h3{line-height:1.45}
 [dir=rtl] .pour,[dir=rtl] .sum,[dir=rtl] .hint{line-height:1.65}
@@ -421,7 +499,13 @@ pre.csv{text-align:left}
   .tools{position:absolute;top:54px;inset-inline:8px;z-index:3;justify-content:flex-end;padding:0;gap:4px}
   .tools button{padding:6px 8px;font-size:12.5px;min-height:36px;background:color-mix(in srgb,var(--raise) 92%,transparent);backdrop-filter:blur(6px)}
   .tools .lens{background:color-mix(in srgb,var(--raise) 92%,transparent);backdrop-filter:blur(6px)}
-  .tools .lens button{background:transparent;backdrop-filter:none;min-height:34px}
+  .tools .lens button{background:transparent;backdrop-filter:none;min-height:34px;padding:6px 7px;flex:none}
+  .tools .lens button[aria-pressed=true]{background:var(--chip-on);color:var(--chip-on-ink)}
+  .tools .lens{flex:0 1 auto;overflow-x:auto;scrollbar-width:none}
+  .tools .lens::-webkit-scrollbar{display:none}
+  .tools #bExport,.tools #bFit{flex:none;width:38px;padding:0;display:grid;place-items:center}
+  .tools .ic{display:block}
+  .tools .tx{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .panel{border-inline-end:0;border-top:1px solid var(--line);overflow:visible;padding:20px 16px 30px}
   h1{font-size:27px}
   .card{inset-inline:8px;width:auto;bottom:8px;max-height:72%}
@@ -496,10 +580,18 @@ pre.csv{text-align:left}
     </header>
     <section class="kpis" id="kpis" aria-label="Progress" data-ar-aria-label="الإنجاز"></section>
     <div class="banner" id="banner" hidden></div>
+    <section class="sec" id="curveSec" hidden aria-label="Progress curve" data-ar-aria-label="منحنى الإنجاز">
+      <h2><span data-ar="منحنى الإنجاز">Progress curve</span><small data-ar="المشروع كاملاً، من لوحة المتابعة">whole project, from the dashboard</small></h2>
+      <p class="ckey"><span><i class="pl"></i><span data-ar="المخطط (الخطة الأساسية)">Plan (baseline)</span></span><span><i></i><span data-ar="الفعلي">Actual</span></span></p>
+      <div class="curvefig" id="curve"></div>
+      <details class="more"><summary data-ar="الأرقام الأسبوعية">Weekly figures</summary><div id="curveTable"></div></details>
+    </section>
+    <section class="sec" id="changes" hidden aria-label="What changed this week" data-ar-aria-label="ما تغيّر هذا الأسبوع"></section>
     <section class="sec" id="floorProg" aria-label="Concrete cast by floor" data-ar-aria-label="الخرسانة المصبوبة حسب الدور"></section>
     <button class="warn" id="warn" type="button" hidden></button>
     <section class="sec"><h2><span id="legTitle">Colours</span><small id="legNote"></small></h2><ul class="legend" id="legend"></ul><p class="hint" id="legHint"></p></section>
     <section class="sec" id="modeBody"></section>
+    <section class="sec" id="sleeveSec" hidden aria-label="MEP sleeves" data-ar-aria-label="جلب الأعمال الكهروميكانيكية"></section>
     <section class="sec">
       <h2><span data-ar="خيارات العرض">View options</span><small id="floorNote"></small></h2>
       <div class="toggles" style="margin-top:0">
@@ -538,7 +630,7 @@ pre.csv{text-align:left}
         <button role="tab" id="tab-pva" aria-selected="false" data-mode="pva" data-ar="المخطط والفعلي">Plan vs actual</button>
         <button role="tab" id="tab-time" aria-selected="false" data-mode="time" data-ar="الخط الزمني 4D">4D timeline</button>
       </div>
-      <div class="tools"><span class="lens" id="lens" role="group" aria-label="Focus" data-ar-aria-label="التركيز"><button id="bDone" type="button" aria-pressed="false" title="What was built since the previous weekly update" data-ar-title="ما نُفّذ منذ التحديث الأسبوعي السابق" data-ar="الأسبوع الماضي">Last week</button><button id="bWeek" type="button" aria-pressed="false" title="Only next week's work, numbered" data-ar-title="أعمال الأسبوع القادم فقط، مرقّمة" data-ar="الأسبوع القادم">Next week</button></span><button id="bExport" type="button" title="PDF or picture for the weekly report, or a link to this view" data-ar-title="ملف PDF أو صورة للتقرير الأسبوعي، أو رابط لهذا العرض" data-ar="مشاركة">Share</button><button id="bFit" type="button" title="Show the whole building again" data-ar-title="إظهار المبنى كاملاً من جديد" data-ar="إعادة الضبط">Reset</button></div>
+      <div class="tools"><span class="lens" id="lens" role="group" aria-label="Focus" data-ar-aria-label="التركيز"><button id="bDone" type="button" aria-pressed="false" title="What was built since the previous weekly update" data-ar-title="ما نُفّذ منذ التحديث الأسبوعي السابق" data-ar="الأسبوع الماضي">Last week</button><button id="bWeek" type="button" aria-pressed="false" title="Only next week's work, numbered" data-ar-title="أعمال الأسبوع القادم فقط، مرقّمة" data-ar="الأسبوع القادم">Next week</button><button id="bLook" type="button" aria-pressed="false" title="Only the next 3 weeks of work, coloured by week" data-ar-title="أعمال الأسابيع الثلاثة القادمة فقط، ملوّنة حسب الأسبوع" data-ar="3 أسابيع">3 weeks</button><button id="bSleeve" type="button" aria-pressed="false" title="MEP sleeves still to provide before each pour" data-ar-title="جلب الأعمال الكهروميكانيكية المطلوب تركيبها قبل كل صبة" data-ar="الجلب">Sleeves</button></span><button id="bExport" type="button" title="PDF or picture for the weekly report, or a link to this view" data-ar-title="ملف PDF أو صورة للتقرير الأسبوعي، أو رابط لهذا العرض"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3M6 7l4-4 4 4M4 11v5h12v-5"/></svg><span class="tx" data-ar="مشاركة">Share</span></button><button id="bFit" type="button" title="Show the whole building again" data-ar-title="إظهار المبنى كاملاً من جديد"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 8.5A6 6 0 1 1 4 11M4 3.5v5h5"/></svg><span class="tx" data-ar="إعادة الضبط">Reset</span></button></div>
     </div>
   <main class="stage" id="stage">
     <canvas id="c" aria-label="3D structural model" data-ar-aria-label="النموذج الإنشائي ثلاثي الأبعاد"></canvas>
@@ -584,7 +676,8 @@ pre.csv{text-align:left}
       <li><b>Add site notes</b> for work seen on site after the data date. In <i>Site updates</i>, press <i>Add a site update</i>, fill it in and press <i>Show it in the 4D</i>, then <i>Copy lines</i>. On GitHub, open <code>furah-4d/site-updates.csv</code>, press the pencil, paste at the end and press <i>Commit changes</i>. A line stops counting by itself once the dashboard catches up.</li>
       <li><b>Link inspections and photos</b> (optional). Add a line to <code>furah-4d/documents.csv</code> for each WIR, MIR or photo folder: date, activity, type, ref, status (A, B, C or D), link, note. They show on the element card under <i>Inspections, photos and documents</i>.</li>
       <li><b>Look at Data health</b> at the bottom of the side panel. It should say "all good". If it lists activities that are not found, the dashboard's activity IDs have changed: send the list to whoever looks after the 4D.</li>
-      <li><b>Make the weekly report pictures.</b> Press <i>Next week</i> at the top of the model, then <i>Share</i> and <i>Download PDF</i>. For work done: <i>Last week</i>. For delays: <i>Plan vs actual</i>, <i>Show only these in 3D</i>, then <i>Share</i>.</li>
+      <li><b>Mark MEP sleeves</b> once they are fixed, before each pour. Add a line to <code>furah-4d/sleeves.csv</code>: date, sleeve, status (provided, pending or not needed), by, note. The sleeve can be one tag (GF-07), a whole pour (GF/BEAM) or a floor (GF). Tap a sleeve in the <i>Sleeves</i> view to copy its line.</li>
+      <li><b>Send the weekly update.</b> In <i>What changed this week</i>, press <i>Copy weekly summary</i> and paste it into the email or chat. For pictures: <i>3 weeks</i> or <i>Next week</i> at the top of the model, then <i>Share</i> and <i>Download PDF</i>. For work done: <i>Last week</i>. For delays: <i>Plan vs actual</i>, <i>Show only these in 3D</i>, then <i>Share</i>.</li>
     </ol>
     <h3>When the Revit model changes</h3>
     <p>The 4D model is a copy exported from the structural Revit model, so it does not follow the Revit file by itself. When a new structural revision is issued, upload the .rvt to this project and ask Claude to refresh the 4D model. Only <code>model.json</code> changes; upload it to the <code>furah-4d</code> folder on GitHub the same way. Elements are tied to activities by their BOQ code, so keep the BOQ parameter filled in.</p>
@@ -604,7 +697,8 @@ pre.csv{text-align:left}
       <li><b>أضف ملاحظات الموقع</b> للأعمال المنفّذة بعد تاريخ البيانات. في «تحديثات الموقع» اضغط «إضافة تحديث من الموقع»، واملأ الحقول واضغط «اعرضه في النموذج»، ثم «نسخ الأسطر». على GitHub افتح <code>furah-4d/site-updates.csv</code> واضغط القلم والصق في النهاية ثم <i>Commit changes</i>. يتوقف احتساب السطر تلقائياً عندما تلحق به لوحة المتابعة.</li>
       <li><b>اربط طلبات الفحص والصور</b> (اختياري). أضف سطراً في <code>furah-4d/documents.csv</code> لكل طلب WIR أو MIR أو مجلد صور: التاريخ، النشاط، النوع، الرقم، الحالة (A أو B أو C أو D)، الرابط، ملاحظة. تظهر في بطاقة العنصر تحت «طلبات الفحص والصور والمستندات».</li>
       <li><b>راجع «سلامة البيانات»</b> أسفل اللوحة الجانبية. يجب أن تقول «كل شيء سليم». إذا ذكرت أنشطة غير موجودة فقد تغيّرت رموز الأنشطة في لوحة المتابعة: أرسل القائمة إلى المسؤول عن النموذج.</li>
-      <li><b>جهّز صور التقرير الأسبوعي.</b> اضغط «الأسبوع القادم» أعلى النموذج ثم «مشاركة» ثم «تنزيل PDF». للأعمال المنجزة: «الأسبوع الماضي». للتأخيرات: «المخطط والفعلي» ثم «اعرض هذه فقط في النموذج» ثم «مشاركة». الورقة تبقى بالإنجليزية بترويسة AHB.</li>
+      <li><b>سجّل جلب الأعمال الكهروميكانيكية</b> بعد تركيبها وقبل كل صبة. أضف سطراً في <code>furah-4d/sleeves.csv</code>: التاريخ، الجلبة، الحالة (provided أو pending أو not needed)، الاسم، ملاحظة. يمكن أن تكون الجلبة رمزاً واحداً (GF-07) أو صبة كاملة (GF/BEAM) أو دوراً (GF). اضغط على جلبة في عرض «الجلب» لنسخ سطرها.</li>
+      <li><b>أرسل التحديث الأسبوعي.</b> في «ما تغيّر هذا الأسبوع» اضغط «نسخ الملخص الأسبوعي» والصقه في البريد أو المحادثة. للصور: «3 أسابيع» أو «الأسبوع القادم» أعلى النموذج ثم «مشاركة» ثم «تنزيل PDF». للأعمال المنجزة: «الأسبوع الماضي». للتأخيرات: «المخطط والفعلي» ثم «اعرض هذه فقط في النموذج» ثم «مشاركة». الورقة تبقى بالإنجليزية بترويسة AHB.</li>
     </ol>
     <h3>عند تغيّر نموذج Revit</h3>
     <p>النموذج 4D نسخة مُصدَّرة من نموذج Revit الإنشائي، لذا لا يتبع ملف Revit تلقائياً. عند صدور مراجعة إنشائية جديدة، ارفع ملف <bdi dir="ltr">.rvt</bdi> إلى هذا المشروع واطلب من Claude تحديث النموذج. يتغيّر <code>model.json</code> فقط؛ ارفعه إلى مجلد <code>furah-4d</code> على GitHub بالطريقة نفسها. ترتبط العناصر بالأنشطة عبر رمز BOQ، لذا أبقِ حقل BOQ مملوءاً.</p>
